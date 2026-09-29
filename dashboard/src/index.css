@@ -15,6 +15,7 @@
   --baseline: 195 194 183; /* #c3c2b7 */
   --accent: 42 120 214; /* #2a78d6 */
   --accent-ink: 29 92 171; /* #1c5cab — accent as text, AA */
+  --accent-fill: 42 120 214; /* button fill: white text on it is 4.6:1 */
   --good: 0 99 0; /* #006300 — success text */
   --warn: 138 90 0; /* #8a5a00 — warning text; the #fab219 dot carries the hue */
   --bad: 176 40 40; /* #b02828 — critical text */
@@ -37,6 +38,7 @@
     --baseline: 56 56 53;
     --accent: 57 135 229;
     --accent-ink: 134 182 239;
+    --accent-fill: 37 106 191; /* #256abf: white text 5.2:1 (#3987e5 was 3.6:1) */
     --good: 12 163 12;
     --warn: 250 178 25;
     --bad: 230 103 103;
@@ -55,6 +57,7 @@
   --baseline: 56 56 53;
   --accent: 57 135 229;
   --accent-ink: 134 182 239;
+  --accent-fill: 37 106 191;
   --good: 12 163 12;
   --warn: 250 178 25;
   --bad: 230 103 103;

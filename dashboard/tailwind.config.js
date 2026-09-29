@@ -12,6 +12,7 @@ export default {
         line: "rgb(var(--line) / <alpha-value>)",
         accent: "rgb(var(--accent) / <alpha-value>)",
         "accent-ink": "rgb(var(--accent-ink) / <alpha-value>)",
+        "accent-fill": "rgb(var(--accent-fill) / <alpha-value>)",
         good: "rgb(var(--good) / <alpha-value>)",
         warn: "rgb(var(--warn) / <alpha-value>)",
         bad: "rgb(var(--bad) / <alpha-value>)",

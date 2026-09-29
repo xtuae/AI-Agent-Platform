@@ -323,7 +323,7 @@ function Bubble({ m }: { m: MessageOut }) {
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-3 py-2 text-sm md:max-w-[70%]",
-          inbound ? "rounded-bl-sm border border-line bg-surface" : m.author === "person" ? "rounded-br-sm bg-accent text-white" : "rounded-br-sm bg-accent/10",
+          inbound ? "rounded-bl-sm border border-line bg-surface" : m.author === "person" ? "rounded-br-sm bg-accent-fill text-white" : "rounded-br-sm bg-accent/10",
         )}
       >
         {who ? (

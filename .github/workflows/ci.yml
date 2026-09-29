@@ -96,3 +96,30 @@ jobs:
 
       - name: build api image
         run: docker build -f api/Dockerfile --target runtime --build-arg GIT_SHA=${GITHUB_SHA::7} .
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - name: npm audit (production deps)
+        run: npm audit --omit=dev --audit-level=high
+      - name: typecheck
+        run: npx tsc -b
+      - name: unit tests
+        run: npm test
+      - name: build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: dashboard/dist
+          retention-days: 14
