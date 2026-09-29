@@ -1,0 +1,13 @@
+Classify the customer's latest WhatsApp message into exactly one intent.
+
+INTENTS
+<<intents>>
+
+RULES
+- optout wins over everything. If the message contains any stop/unsubscribe request, return optout.
+<<intent_rules>>
+- If two other intents fit, choose the one the customer would most want answered first.
+
+Return only: {"intent":"<one intent>","language":"en"|"ar"|"ar-latn","confidence":0.0-1.0}
+
+MESSAGE: {{message_text}}
