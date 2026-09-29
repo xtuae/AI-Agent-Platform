@@ -87,6 +87,7 @@ export function startLiveUpdates(client: QueryClient): () => void {
   let stopped = false;
   let controller: AbortController | null = null;
   let backoff = 2_000;
+  let connectedBefore = false;
   let pending = new Map<string, QueryKey>();
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -142,7 +143,8 @@ export function startLiveUpdates(client: QueryClient): () => void {
             if (f.event === "ready") {
               setLive(true);
               backoff = 2_000;
-              schedule([[]]); // we may have missed changes while disconnected
+              if (connectedBefore) schedule([[]]); // we may have missed changes while away
+              connectedBefore = true;
             } else if (f.event === "change") {
               try {
                 schedule(keysFor(JSON.parse(f.data) as ChangeEvent));
