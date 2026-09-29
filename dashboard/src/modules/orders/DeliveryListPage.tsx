@@ -17,9 +17,9 @@ export default function DeliveryListPage() {
   const area = params.get("area") ?? "";
   const list = useQuery({
     queryKey: ["delivery", date, area],
-    queryFn: () => api<DeliveryList>("/orders/delivery-list", { query: { date, area } }),
+    queryFn: () => api<DeliveryList>("/m/orders/delivery-list", { query: { date, area } }),
   });
-  const areas = useQuery({ queryKey: ["orders", "areas"], queryFn: () => api<string[]>("/orders/areas") });
+  const areas = useQuery({ queryKey: ["orders", "areas"], queryFn: () => api<string[]>("/m/orders/areas") });
   const set = (k: string, v: string) => {
     const next = new URLSearchParams(params);
     if (v) next.set(k, v);

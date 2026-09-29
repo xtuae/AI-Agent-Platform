@@ -39,6 +39,9 @@ export interface Session {
     slug: string;
     timezone: string;
     meta_charges_borne_by_us_until: string | null;
+    /** Enabled module keys: the dashboard shows only what these modules provide. */
+    modules: string[];
+    contact_label: string;
   };
 }
 export type Role = "viewer" | "agent" | "admin";

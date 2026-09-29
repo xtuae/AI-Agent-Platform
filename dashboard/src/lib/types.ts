@@ -76,7 +76,6 @@ export interface DeliveryList {
 
 export interface Today {
   date: string;
-  orders: { count: number; value_aed: string; deliveries_due: number; unscheduled: number };
   live_conversations: number;
   awaiting_human: number;
   spend: {
@@ -93,8 +92,9 @@ export interface Today {
     last_agent_reply_at: string | null;
     checks: { name: string; status: Health; detail: string }[];
   };
-  orders_by_day: { day: string; orders: number; value_aed: string }[];
   spend_by_day: { day: string; cumulative_aed: string }[];
+  /** Each enabled module's Today data, keyed by module key (shape owned by the module). */
+  modules: Record<string, unknown>;
 }
 
 export type ConvState = "open" | "awaiting_human" | "closed";
@@ -146,9 +146,6 @@ export interface CustomerRow {
   language: string | null;
   source: string | null;
   opt_in_status: OptIn;
-  lifetime_orders: number;
-  last_order_at: string | null;
-  coupon_bottles_remaining: number;
 }
 
 export interface CustomerDetail extends CustomerRow {
@@ -157,19 +154,9 @@ export interface CustomerDetail extends CustomerRow {
   opt_in_at: string | null;
   opt_in_evidence: Record<string, unknown> | null;
   opt_out_at: string | null;
-  coupon_books: {
-    id: string;
-    sku: string | null;
-    bottles_total: number | null;
-    bottles_free: number | null;
-    bottles_remaining: number | null;
-    price_aed: string | null;
-    purchased_at: string | null;
-    expires_at: string | null;
-    live: boolean;
-  }[];
-  orders: { id: string; order_no: string; status: OrderStatus; total_aed: string | null; created_at: string; delivery_date: string | null }[];
   conversations: { id: string; state: ConvState; last_inbound_at: string | null }[];
+  /** One panel per enabled module that has one, keyed by module key. */
+  modules: Record<string, unknown>;
 }
 
 export interface Product {

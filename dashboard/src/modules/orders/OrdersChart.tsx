@@ -1,13 +1,13 @@
 // Orders per day, last 14 days — column chart, one series (so no legend: the title names it).
 import { useState } from "react";
 import { aed, dateLabel } from "@/lib/format";
-import type { Today } from "@/lib/types";
-import { niceTicks, TableView, Tooltip, useWidth } from "./common";
+import type { OrdersToday } from "./types";
+import { niceTicks, TableView, Tooltip, useWidth } from "@/components/charts/common";
 
 const H = 180;
 const PAD = { top: 16, right: 8, bottom: 24, left: 32 };
 
-export function OrdersChart({ data }: { data: Today["orders_by_day"] }) {
+export function OrdersChart({ data }: { data: OrdersToday["by_day"] }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.orders), 0);

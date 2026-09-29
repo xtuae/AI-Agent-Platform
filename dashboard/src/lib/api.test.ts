@@ -5,7 +5,15 @@ const session = (token: string): Session => ({
   access_token: token,
   expires_at: "2030-01-01T00:00:00Z",
   user: { id: "u", email: "a@b.c", name: null, role: "agent" },
-  tenant: { id: "t", name: "T", slug: "t", timezone: "Asia/Dubai", meta_charges_borne_by_us_until: null },
+  tenant: {
+    id: "t",
+    name: "T",
+    slug: "t",
+    timezone: "Asia/Dubai",
+    meta_charges_borne_by_us_until: null,
+    modules: ["catalog", "orders"],
+    contact_label: "Customers",
+  },
 });
 
 const json = (status: number, body: unknown) =>

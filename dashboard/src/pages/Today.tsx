@@ -1,46 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
-import { Link } from "react-router";
 import { Card, CardHeader } from "@/components/ui/card";
+import { Tile } from "@/components/ui/tile";
 import { ErrorNote, PageTitle, Spinner, StatusDot } from "@/components/ui/misc";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { aed, ago, dateLabel } from "@/lib/format";
 import { usePollInterval } from "@/lib/stream";
 import type { Today } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useModules } from "@/modules";
 
 // Charts sit below the fold on a phone: load them after the tiles.
-const OrdersChart = lazy(() => import("@/components/charts/OrdersChart").then((m) => ({ default: m.OrdersChart })));
 const SpendChart = lazy(() => import("@/components/charts/SpendChart").then((m) => ({ default: m.SpendChart })));
-
-function Tile({
-  label,
-  value,
-  sub,
-  to,
-  emphasis,
-}: {
-  label: string;
-  value: string;
-  sub?: React.ReactNode;
-  to?: string;
-  emphasis?: boolean;
-}) {
-  const body = (
-    <Card className={cn("h-full p-4", to && "transition-colors hover:border-accent/40", emphasis && "border-warn/50")}>
-      <p className="text-sm text-ink-2">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{value}</p>
-      {sub ? <div className="mt-1 text-xs text-muted">{sub}</div> : null}
-    </Card>
-  );
-  return to ? (
-    <Link to={to} className="block rounded-xl">
-      {body}
-    </Link>
-  ) : (
-    body
-  );
-}
 
 function SpendTile({ spend }: { spend: Today["spend"] }) {
   if (spend.borne_by_hmh) {
@@ -87,6 +59,8 @@ function SpendTile({ spend }: { spend: Today["spend"] }) {
 }
 
 export function TodayPage() {
+  const modules = useModules();
+  const contactLabel = useAuth().session?.tenant.contact_label ?? "Customers";
   const q = useQuery({
     queryKey: ["today"],
     queryFn: () => api<Today>("/today"),
@@ -110,13 +84,10 @@ export function TodayPage() {
       </PageTitle>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile
-          label="Orders today"
-          value={String(t.orders.count)}
-          sub={`${aed(t.orders.value_aed)} · ${t.orders.deliveries_due} to deliver today`}
-          to="/orders"
-        />
-        <Tile label="Live chats" value={String(t.live_conversations)} sub="Customers who wrote in the last 24 h" to="/conversations" />
+        {modules.map((m) =>
+          m.TodayTiles && t.modules[m.key] !== undefined ? <m.TodayTiles key={m.key} data={t.modules[m.key]} today={t} /> : null,
+        )}
+        <Tile label="Live chats" value={String(t.live_conversations)} sub={`${contactLabel} who wrote in the last 24 h`} to="/conversations" />
         <Tile
           label="Needs a person"
           value={String(t.awaiting_human)}
@@ -141,23 +112,12 @@ export function TodayPage() {
             </li>
           ))}
         </ul>
-        {t.orders.unscheduled > 0 ? (
-          <p className="border-t border-line px-4 py-3 text-sm text-ink-2">
-            {t.orders.unscheduled} open order{t.orders.unscheduled === 1 ? "" : "s"} still need a delivery date.{" "}
-            <Link to="/orders" className="font-medium text-accent-ink underline-offset-2 hover:underline">
-              Review
-            </Link>
-          </p>
-        ) : null}
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Orders per day" subtitle="Last 14 days, excluding cancelled" />
-          <Suspense fallback={<div className="h-[180px]" />}>
-            <OrdersChart data={t.orders_by_day} />
-          </Suspense>
-        </Card>
+        {modules.map((m) =>
+          m.TodayChart && t.modules[m.key] !== undefined ? <m.TodayChart key={m.key} data={t.modules[m.key]} /> : null,
+        )}
         <Card>
           <CardHeader
             title="Message spend this month"

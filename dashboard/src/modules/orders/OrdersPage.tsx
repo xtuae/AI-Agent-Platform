@@ -14,18 +14,9 @@ import { aed, dateLabel, dateTime, label, localToday, phone, STATUS_LABEL } from
 import { usePollInterval } from "@/lib/stream";
 import type { CustomerDetail, CustomerRow, Order, OrderDetail, OrderStatus, Page, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const STATUS_TONE: Record<OrderStatus, "neutral" | "accent" | "good" | "warn" | "bad"> = {
-  draft: "neutral",
-  confirmed: "accent",
-  out_for_delivery: "warn",
-  delivered: "good",
-  cancelled: "bad",
-};
-
-export function StatusBadge({ status }: { status: OrderStatus }) {
-  return <Badge tone={STATUS_TONE[status]}>{label(STATUS_LABEL, status)}</Badge>;
-}
+import { useHasModule } from "@/modules";
+import type { CouponsPanel } from "@/modules/coupons";
+import { StatusBadge } from "./StatusBadge";
 
 const FILTERS: { key: string; label: string; status?: OrderStatus[] }[] = [
   { key: "open", label: "Open", status: ["draft", "confirmed", "out_for_delivery"] },
@@ -61,11 +52,11 @@ export default function OrdersPage() {
   };
   const orders = useQuery({
     queryKey: ["orders", query],
-    queryFn: () => api<Page<Order>>("/orders", { query }),
+    queryFn: () => api<Page<Order>>("/m/orders", { query }),
     placeholderData: keepPreviousData,
     refetchInterval: poll,
   });
-  const areas = useQuery({ queryKey: ["orders", "areas"], queryFn: () => api<string[]>("/orders/areas") });
+  const areas = useQuery({ queryKey: ["orders", "areas"], queryFn: () => api<string[]>("/m/orders/areas") });
 
   function set(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -247,12 +238,12 @@ function OrderDrawer({ id, onClose }: { id: string | null; onClose: () => void }
   const canEdit = useCan("agent");
   const order = useQuery({
     queryKey: ["order", id],
-    queryFn: () => api<OrderDetail>(`/orders/${id}`),
+    queryFn: () => api<OrderDetail>(`/m/orders/${id}`),
     enabled: id !== null,
   });
   const [edit, setEdit] = useState<{ delivery_date: string; delivery_slot: string; notes: string } | null>(null);
   const patch = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api<Order>(`/orders/${id}`, { method: "PATCH", body }),
+    mutationFn: (body: Record<string, unknown>) => api<Order>(`/m/orders/${id}`, { method: "PATCH", body }),
     onSuccess: () => {
       setEdit(null);
       void client.invalidateQueries({ queryKey: ["orders"] });
@@ -448,11 +439,11 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
 
   const products = useQuery({
     queryKey: ["products", "active"],
-    queryFn: () => api<Product[]>("/products", { query: { active: true } }),
+    queryFn: () => api<Product[]>("/m/catalog/products", { query: { active: true } }),
   });
   const create = useMutation({
     mutationFn: () =>
-      api<Order>("/orders", {
+      api<Order>("/m/orders", {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
         body: {
@@ -460,7 +451,7 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
           items: Object.entries(qty)
             .filter(([, n]) => n > 0)
             .map(([sku, n]) => ({ sku, qty: n })),
-          use_coupon_book: useCoupon,
+          use_coupon_book: hasCoupons && useCoupon,
           area: area || null,
           delivery_date: date || null,
           delivery_slot: slot || null,
@@ -485,7 +476,14 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
       }, 0),
     [lines, qty, useCoupon],
   );
-  const bottles = customer?.coupon_bottles_remaining ?? 0;
+  // Prepaid balance comes from the coupons module, when this tenant has it.
+  const hasCoupons = useHasModule("coupons");
+  const detail = useQuery({
+    queryKey: ["customer", customer?.id],
+    queryFn: () => api<CustomerDetail>(`/contacts/${customer?.id}`),
+    enabled: hasCoupons && customer !== null,
+  });
+  const bottles = (detail.data?.modules.coupons as CouponsPanel | undefined)?.bottles_remaining ?? 0;
 
   return (
     <Sheet
@@ -599,12 +597,12 @@ function CustomerPicker({
   const [draft, setDraft] = useState({ wa_id: "", name: "", area: "", address_note: "" });
   const results = useQuery({
     queryKey: ["customers", { q, limit: 6 }],
-    queryFn: () => api<Page<CustomerRow>>("/customers", { query: { q, limit: 6 } }),
+    queryFn: () => api<Page<CustomerRow>>("/contacts", { query: { q, limit: 6 } }),
     enabled: q.trim().length >= 2 && !value,
   });
   const add = useMutation({
     mutationFn: () =>
-      api<CustomerDetail>("/customers", {
+      api<CustomerDetail>("/contacts", {
         method: "POST",
         body: {
           wa_id: draft.wa_id,
@@ -661,7 +659,7 @@ function CustomerPicker({
               className="font-medium text-accent-ink"
               onClick={async () => {
                 const id = (add.error as ApiError).detail as { id: string };
-                onChange(await api<CustomerDetail>(`/customers/${id.id}`));
+                onChange(await api<CustomerDetail>(`/contacts/${id.id}`));
                 setAdding(false);
               }}
             >
@@ -696,7 +694,6 @@ function CustomerPicker({
                 <span className="ml-2 text-xs text-muted">
                   {phone(c.wa_id)}
                   {c.area ? ` · ${c.area}` : ""}
-                  {c.coupon_bottles_remaining ? ` · ${c.coupon_bottles_remaining} coupons` : ""}
                 </span>
               </button>
             </li>

@@ -1,19 +1,38 @@
-import { Home, LogOut, MessagesSquare, Package, Settings, Users } from "lucide-react";
-import { Suspense } from "react";
+import { Home, LogOut, MessagesSquare, MoreHorizontal, Settings, Users, type LucideIcon } from "lucide-react";
+import { Suspense, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 import { logout } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLive } from "@/lib/stream";
 import { cn } from "@/lib/utils";
+import { useModules } from "@/modules";
 import { Spinner } from "./ui/misc";
+import { Sheet } from "./ui/sheet";
 
-const NAV = [
-  { to: "/", label: "Today", icon: Home, end: true },
-  { to: "/orders", label: "Orders", icon: Package, end: false },
-  { to: "/conversations", label: "Chats", icon: MessagesSquare, end: false },
-  { to: "/customers", label: "Customers", icon: Users, end: false },
-  { to: "/settings", label: "Settings", icon: Settings, end: false },
-] as const;
+interface NavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  end: boolean;
+}
+
+/** Core screens around whatever the tenant's modules add (Orders for water, …). */
+function useNav(): NavItem[] {
+  const modules = useModules();
+  const contactLabel = useAuth().session?.tenant.contact_label ?? "Customers";
+  return useMemo(
+    () => [
+      { to: "/", label: "Today", icon: Home, end: true },
+      ...modules.flatMap((m) => (m.nav ?? []).map((n) => ({ ...n, end: false }))),
+      { to: "/conversations", label: "Chats", icon: MessagesSquare, end: false },
+      { to: "/contacts", label: contactLabel, icon: Users, end: false },
+      { to: "/settings", label: "Settings", icon: Settings, end: false },
+    ],
+    [modules, contactLabel],
+  );
+}
+
+const BOTTOM_SLOTS = 5;
 
 function LiveBadge() {
   const live = useLive();
@@ -27,6 +46,12 @@ function LiveBadge() {
 
 export function Layout() {
   const { session } = useAuth();
+  const NAV = useNav();
+  const [more, setMore] = useState(false);
+  // Phones: five slots. With more screens than that, the last slot opens the rest.
+  const overflow = NAV.length > BOTTOM_SLOTS;
+  const bottom = overflow ? NAV.slice(0, BOTTOM_SLOTS - 1) : NAV;
+  const rest = overflow ? NAV.slice(BOTTOM_SLOTS - 1) : [];
   return (
     <div className="min-h-dvh md:flex">
       {/* desktop sidebar */}
@@ -83,9 +108,10 @@ export function Layout() {
       {/* phone bottom nav */}
       <nav
         aria-label="Main"
-        className="no-print fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="no-print fixed inset-x-0 bottom-0 z-30 grid border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+        style={{ gridTemplateColumns: `repeat(${Math.min(NAV.length, BOTTOM_SLOTS)}, minmax(0, 1fr))` }}
       >
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+        {bottom.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -98,10 +124,40 @@ export function Layout() {
             }
           >
             <Icon className="size-5" aria-hidden />
-            {label}
+            <span className="max-w-full truncate px-1">{label}</span>
           </NavLink>
         ))}
+        {overflow ? (
+          <button
+            onClick={() => setMore(true)}
+            className="flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] text-muted"
+          >
+            <MoreHorizontal className="size-5" aria-hidden />
+            More
+          </button>
+        ) : null}
       </nav>
+      {overflow ? (
+        <Sheet open={more} onOpenChange={setMore} title="More">
+          <ul className="space-y-1">
+            {rest.map(({ to, label, icon: Icon, end }) => (
+              <li key={to}>
+                <NavLink
+                  to={to}
+                  end={end}
+                  onClick={() => setMore(false)}
+                  className={({ isActive }) =>
+                    cn("flex items-center gap-3 rounded-lg px-3 py-3", isActive ? "bg-accent/10 font-medium text-accent-ink" : "text-ink-2")
+                  }
+                >
+                  <Icon className="size-5" aria-hidden />
+                  {label}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        </Sheet>
+      ) : null}
     </div>
   );
 }

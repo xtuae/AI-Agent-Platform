@@ -288,3 +288,18 @@ def test_cli_lists_modules_and_presets(capsys: pytest.CaptureFixture[str]) -> No
     out = capsys.readouterr().out
     assert "water_delivery" in out
     assert "coupons" in out
+
+
+def test_dashboard_modules_exist_in_the_api() -> None:
+    """The React registry (dashboard/src/modules) may only name modules the API has, with the
+    same keys — a typo there would silently hide a module's screens."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "dashboard" / "src" / "modules"
+    keys = {
+        m.group(1)
+        for p in root.glob("*/index.tsx")
+        for m in re.finditer(r'key:\s*"([a-z_]+)"', p.read_text())
+    }
+    assert keys, "dashboard module registry not found"
+    assert keys <= set(registry.all_modules()), keys - set(registry.all_modules())
