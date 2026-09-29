@@ -4,9 +4,29 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from api.agents.tools.base import Tool, ToolArgs, ToolContext, ToolResult, error
-from api.agents.tools.get_customer_context import order_view
+from api.agents.tools.base import Tool, ToolArgs, ToolContext, ToolResult, error, money
 from api.db.models import Order
+
+
+def order_view(o: Order) -> dict[str, object]:
+    return {
+        "order_no": o.order_no,
+        "status": o.status,
+        "date": o.created_at.date().isoformat(),
+        "items": [
+            {
+                "sku": i.get("sku"),
+                "name": i.get("name"),
+                "qty": i.get("qty"),
+                "unit_price_aed": i.get("unit_price_aed"),
+            }
+            for i in (o.items or [])
+        ],
+        "total_aed": money(o.total_aed),
+        "delivery_date": o.delivery_date.isoformat() if o.delivery_date else None,
+        "delivery_slot": o.delivery_slot,
+    }
+
 
 SCHEMA = {
     "type": "object",

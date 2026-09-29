@@ -1,15 +1,13 @@
-"""Customers and their coupon books."""
+"""Customers (the dashboard calls them contacts): core, shared by every module."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
-    ForeignKeyConstraint,
     Integer,
     Text,
     UniqueConstraint,
@@ -45,21 +43,3 @@ class Customer(TenantScoped, Base):
     last_order_at: Mapped[datetime | None]
     external_ref: Mapped[str | None] = mapped_column(Text)
     address_note: Mapped[str | None] = mapped_column(Text)
-
-
-class CouponBook(TenantScoped, Base):
-    __tablename__ = "coupon_books"
-    __table_args__ = (
-        ForeignKeyConstraint(["tenant_id", "customer_id"], ["customers.tenant_id", "customers.id"]),
-        CheckConstraint("bottles_remaining >= 0", name="bottles_remaining_non_negative"),
-    )
-
-    id: Mapped[uuid.UUID] = uuid_pk()
-    customer_id: Mapped[uuid.UUID] = mapped_column(index=True)
-    sku: Mapped[str | None] = mapped_column(Text)
-    price_aed: Mapped[Decimal | None]
-    bottles_total: Mapped[int | None] = mapped_column(Integer)
-    bottles_free: Mapped[int | None] = mapped_column(Integer)
-    bottles_remaining: Mapped[int | None] = mapped_column(Integer)
-    purchased_at: Mapped[datetime | None]
-    expires_at: Mapped[date | None]

@@ -11,11 +11,12 @@ from typing import Any
 
 import pytest
 
-from api.agents import prompts
 from api.agents.classifier import CLASSIFIER_MAX_TOKENS, classify, explicit_optout
 from api.agents.context import Persona, render_support_prompt
+from api.agents.prompts import compose
 from api.agents.text import clean_inline, estimate_tokens
 from api.llm.router import LLMResult
+from api.modules import registry
 
 SPEC = Path(__file__).resolve().parents[2] / "02_agent_prompts.md"
 
@@ -72,13 +73,28 @@ class OneShot:
 async def test_classifier_call_shape_and_parse() -> None:
     llm = OneShot('{"intent":"balance","language":"ar","confidence":0.93}')
     c = await classify(
-        llm, provider="gemini", model="gemini-2.5-flash-lite", text="كم زجاجة باقي عندي"
+        llm,
+        provider="gemini",
+        model="gemini-2.5-flash-lite",
+        text="كم زجاجة باقي عندي",
+        modules=("catalog", "orders", "coupons"),
     )
     assert (c.intent, c.language, c.confidence) == ("balance", "ar", 0.93)
     assert llm.kwargs["temperature"] == 0
     assert llm.kwargs["json_mode"] is True
     assert llm.kwargs["max_tokens"] == CLASSIFIER_MAX_TOKENS
     assert "MESSAGE: كم زجاجة باقي عندي" in llm.kwargs["messages"][0]["content"]
+
+
+async def test_classifier_only_accepts_intents_of_enabled_modules() -> None:
+    """'balance' belongs to the coupons module: a tenant without it cannot get that intent, and
+    its classifier prompt does not offer it."""
+    llm = OneShot('{"intent":"balance","language":"en","confidence":0.9}')
+    c = await classify(llm, provider="gemini", model="m", text="how many left?")
+    assert c.intent == "unknown"
+    prompt = llm.kwargs["messages"][0]["content"]
+    assert "balance" not in prompt
+    assert "complaint     Unhappy" in prompt  # core intents are always there
 
 
 @pytest.mark.parametrize("raw", ["not json", '{"intent":"hack_the_planet"}', "", '["optout"]'])
@@ -103,16 +119,26 @@ def _spec_block(start_marker: str) -> str:
     return text[body_start : text.index("\n```", body_start)]
 
 
+WATER = registry.resolve(registry.expand(["water_delivery"]))
+
+
 def test_support_prompt_is_the_spec_verbatim() -> None:
-    template = (Path(prompts.__file__).parent / "templates" / f"{prompts.SUPPORT}.j2").read_text()
-    assert template.rstrip("\n") == _spec_block("## 2. Support Agent — system prompt")
+    """The prompt is split into core + modules; for the water preset the composed template must
+    still be 02 §2 byte for byte (so the split changed nothing for Aquamena)."""
+    assert compose.support_source(WATER).rstrip("\n") == _spec_block(
+        "## 2. Support Agent — system prompt"
+    )
 
 
 def test_classifier_prompt_is_the_spec_verbatim() -> None:
-    template = (
-        Path(prompts.__file__).parent / "templates" / f"{prompts.CLASSIFIER}.j2"
-    ).read_text()
-    assert template.rstrip("\n") == _spec_block("## 1. Intent classifier")
+    assert compose.classifier_source(WATER).rstrip("\n") == _spec_block("## 1. Intent classifier")
+
+
+def test_context_tool_description_is_the_spec_for_water() -> None:
+    assert compose.context_description(WATER) == (
+        "Fetch this customer's profile, live coupon balance and recent orders. Call this before "
+        "answering any question about their balance, their history, or a repeat order."
+    )
 
 
 # ---------------------------------------------------------------- token budget

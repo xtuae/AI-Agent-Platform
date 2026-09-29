@@ -3,13 +3,13 @@
 * every SKU must exist and be active for this tenant — unknown SKU is an error, never a silent order
 * qty above 200 for any SKU → escalate instead of creating
 * the total is recomputed from the products table; the model never supplies a price or total
-* use_coupon_book only with a live book holding enough bottles; otherwise the REAL balance is
-  returned as an error for the agent to explain
+* use_coupon_book (added to the schema by the coupons module) only with a live book holding
+  enough bottles; otherwise the REAL balance is returned as an error for the agent to explain
 * idempotent on (conversation_id, items) within 10 minutes — a retry cannot double-order
 * one transaction (the tool round's), audit_log actor 'agent'
 
-Coupon books redeem bottles of `water`-category products (one coupon = one bottle). ASSUMPTION
-to confirm with the client — see the Phase 2 notes.
+Redemption itself lives in whichever enabled module implements the orders `order_redeem`
+extension point (today: coupons).
 """
 
 from __future__ import annotations
@@ -32,8 +32,14 @@ from api.agents.tools.base import (
     escalate_ctx,
     money,
 )
-from api.commerce.orders import OrderError, OrderRequest, load_products, place_order
 from api.db.models import Order
+from api.modules.orders.service import (
+    OrderError,
+    OrderRequest,
+    load_products,
+    place_order,
+    redeem_hook,
+)
 
 MAX_QTY_PER_SKU = 200
 IDEMPOTENCY_WINDOW = timedelta(minutes=10)
@@ -51,12 +57,6 @@ SCHEMA: dict[str, Any] = {
                 },
                 "required": ["sku", "qty"],
             },
-        },
-        "use_coupon_book": {
-            "type": "boolean",
-            "description": (
-                "Draw bottles from the customer's existing coupon book rather than charging"
-            ),
         },
         "area": {"type": "string"},
         "delivery_date_preference": {"type": "string", "description": "ISO date, or 'asap'"},
@@ -91,7 +91,10 @@ def _delivery_date(pref: str | None, ctx: ToolContext) -> date | None:
             d = None
         if d is not None and d >= ctx.today:
             return d
-    lead = (ctx.feature_flags.get("delivery") or {}).get("lead_days")
+    config = ctx.enabled.config("orders")
+    lead = getattr(config, "lead_days", None)
+    if lead is None:  # pre-modules location, still honoured
+        lead = (ctx.feature_flags.get("delivery") or {}).get("lead_days")
     return ctx.today + timedelta(days=int(lead)) if isinstance(lead, int) and lead >= 0 else None
 
 
@@ -154,7 +157,7 @@ async def run(ctx: ToolContext, args: Args) -> ToolResult:
                 area=args.area,
                 source="agent",
                 created_by="agent",
-                use_coupon_book=args.use_coupon_book,
+                use_prepaid=args.use_coupon_book,
                 delivery_date=_delivery_date(args.delivery_date_preference, ctx),
                 notes=args.notes,
                 conversation_id=ctx.conversation_id,
@@ -162,6 +165,7 @@ async def run(ctx: ToolContext, args: Args) -> ToolResult:
             ),
             now=ctx.now,
             today=ctx.today,
+            redeem=redeem_hook(ctx.enabled),
         )
     except OrderError as exc:
         return _order_error(exc)
@@ -185,9 +189,9 @@ async def run(ctx: ToolContext, args: Args) -> ToolResult:
     }
     if order.delivery_date is None:
         result["delivery_window"] = "to be confirmed by the team"
-    if args.use_coupon_book:
-        result["bottles_from_coupon"] = placed.bottles_from_coupon
-        result["coupon_bottles_remaining"] = placed.coupon_bottles_remaining
+    if placed.redemption is not None:
+        result["bottles_from_coupon"] = placed.redemption.units
+        result["coupon_bottles_remaining"] = placed.redemption.remaining
     return result
 
 

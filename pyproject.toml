@@ -57,8 +57,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "api/tests/**" = ["S105", "S106", "S311"]
 "api/db/migrations/**" = ["E501"]
-"api/agents/canned.py" = ["E501"]
-"api/tests/test_conversations.py" = ["E501"]  # scripted model replies read best on one line  # customer-facing copy: one reviewable line per language
+"api/agents/canned.py" = ["E501"]  # customer-facing copy: one reviewable line per language
+"api/modules/*/module.py" = ["E501"]  # spec prompt text, kept byte-exact
+"api/agents/prompts/compose.py" = ["E501"]
+"api/tests/test_conversations.py" = ["E501"]  # scripted model replies read best on one line
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

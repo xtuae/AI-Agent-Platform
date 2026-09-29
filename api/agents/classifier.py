@@ -13,36 +13,17 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Final
 
-from api.agents import prompts
+from api.agents.prompts import compose
 from api.agents.text import script_of
 from api.llm.router import LLM, LLMResult
+from api.modules import registry
 
-Intent = Literal[
-    "order",
-    "balance",
-    "delivery",
-    "price",
-    "complaint",
-    "optout",
-    "support",
-    "smalltalk",
-    "unknown",
-]
-INTENTS: Final = frozenset(
-    [
-        "order",
-        "balance",
-        "delivery",
-        "price",
-        "complaint",
-        "optout",
-        "support",
-        "smalltalk",
-        "unknown",
-    ]
-)
+# Core intents, handled by the turn runner itself; every other intent comes from a module and goes
+# to the support agent.
+Intent = str
+CORE_INTENTS: Final = frozenset(i.name for i in compose.CORE_INTENTS)
 LANGUAGES: Final = frozenset(["en", "ar", "ar-latn"])
 
 # 02 §1 says max output 20 tokens; the required JSON is ~25 tokens for ar-latn answers, so 20
@@ -100,8 +81,17 @@ class Classification:
     llm: LLMResult | None
 
 
-async def classify(llm: LLM, *, provider: str, model: str, text: str) -> Classification:
-    prompt = prompts.render(prompts.CLASSIFIER, message_text=text)
+async def classify(
+    llm: LLM,
+    *,
+    provider: str,
+    model: str,
+    text: str,
+    modules: tuple[str, ...] = (),
+) -> Classification:
+    """`modules`: the tenant's enabled module keys — their intents are added to the prompt."""
+    prompt = compose.render_classifier(modules, message_text=text)
+    allowed = compose.intents(registry.resolve(modules))
     result = await llm.chat(
         provider=provider,
         model=model,
@@ -111,12 +101,14 @@ async def classify(llm: LLM, *, provider: str, model: str, text: str) -> Classif
         json_mode=True,
     )
     intent, language, confidence = _parse(
-        result.content or "", fallback_language=guess_language(text)
+        result.content or "", fallback_language=guess_language(text), allowed=allowed
     )
     return Classification(intent=intent, language=language, confidence=confidence, llm=result)
 
 
-def _parse(raw: str, *, fallback_language: str) -> tuple[Intent, str, float]:
+def _parse(
+    raw: str, *, fallback_language: str, allowed: frozenset[str] = CORE_INTENTS
+) -> tuple[Intent, str, float]:
     match = re.search(r"\{.*\}", raw, re.S)
     try:
         data = json.loads(match.group(0)) if match else {}
@@ -131,7 +123,7 @@ def _parse(raw: str, *, fallback_language: str) -> tuple[Intent, str, float]:
     except (TypeError, ValueError):
         confidence = 0.0
     return (
-        intent if intent in INTENTS else "unknown",
+        intent if isinstance(intent, str) and intent in allowed else "unknown",
         language if language in LANGUAGES else fallback_language,
         confidence,
     )

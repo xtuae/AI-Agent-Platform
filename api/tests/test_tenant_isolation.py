@@ -25,6 +25,7 @@ PLATFORM_TABLES_WITH_TENANT_ID = {
     "tenant_users",
     "tenant_settings",
     "auth_refresh_tokens",  # looked up by cookie before a tenant is known (Phase 3)
+    "tenant_modules",  # which modules a tenant has: read before any tenant session opens
 }
 
 

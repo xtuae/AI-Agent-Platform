@@ -106,6 +106,15 @@ class Module:
     customer_block: CustomerBlockHook | None = None
     customer_context: ContextHook | None = None
 
+    # extra JSON-schema properties this module adds to another module's tool, by tool name
+    # (e.g. coupons adds use_coupon_book to create_order)
+    tool_params: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    # --- extension points other modules call (typed in the owning module; Any here so the
+    # contract does not import every module)
+    order_redeem: Callable[..., Awaitable[Any]] | None = None  # orders.service.RedeemHook
+    order_cancelled: Callable[..., Awaitable[int]] | None = None  # orders.service.CancelHook
+
     # --- API + dashboard
     router: APIRouter | None = None
     today: TodayHook | None = None

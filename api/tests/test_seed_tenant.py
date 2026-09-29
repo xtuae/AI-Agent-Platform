@@ -15,6 +15,7 @@ from api.core.crypto import decrypt_secret
 from api.core.passwords import verify_password
 from api.db.models import CouponPackage, Product, Tenant, TenantChannel, TenantSettings, TenantUser
 from api.db.session import Database
+from api.modules import registry
 from api.scripts import seed_tenant as st
 from api.tests.conftest import meta_id
 from api.webhooks.router import TenantRouter
@@ -51,7 +52,10 @@ def profile_slug(monkeypatch: pytest.MonkeyPatch) -> str:
         st.TENANT_PROFILES,
         slug,
         st.TenantProfile(
-            name="Test Co", legal_name="Test Co LLC", monthly_message_cap_aed=Decimal("100.00")
+            name="Test Co",
+            legal_name="Test Co LLC",
+            monthly_message_cap_aed=Decimal("100.00"),
+            modules=("water_delivery",),
         ),
     )
     return slug
@@ -88,6 +92,9 @@ async def test_seed_is_idempotent_and_complete(
         assert verify_password("correct horse battery staple", users[0].password_hash)
         ts = await s.get(TenantSettings, first.tenant_id)
         assert ts is not None
+        # the profile's preset is switched on (idempotently: seeded twice above)
+        enabled = await registry.enabled_for(s, first.tenant_id)
+        assert enabled.keys == ("catalog", "orders", "coupons")
         assert ts.monthly_message_cap_aed == Decimal("100.00")
 
     async with db.tenant_session(first.tenant_id) as s:

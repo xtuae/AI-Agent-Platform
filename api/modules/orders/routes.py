@@ -1,4 +1,4 @@
-"""/api/v1/orders — the screen that replaces the Excel sheet (01 §8.2 item 2).
+"""/api/v1/m/orders — the screen that replaces the Excel sheet (01 §8.2 item 2).
 
 Prices and totals are computed server-side by api.commerce.orders — the dashboard sends SKUs and
 quantities only, exactly like the agent.
@@ -28,10 +28,16 @@ from api.api.v1.common import (
     zone,
 )
 from api.auth.deps import Agent, Viewer
-from api.commerce.orders import OrderError, OrderRequest, place_order, restore_coupon_bottles
 from api.db.models import AuditLog, Customer, Order
+from api.modules.orders.service import (
+    OrderError,
+    OrderRequest,
+    cancel_hooks,
+    place_order,
+    redeem_hook,
+)
 
-router = APIRouter(prefix="/orders", tags=["orders"])
+router = APIRouter()
 
 OrderStatus = Literal["draft", "confirmed", "out_for_delivery", "delivered", "cancelled"]
 TRANSITIONS: dict[str, frozenset[str]] = {
@@ -112,7 +118,7 @@ class ItemIn(In):
 class OrderCreate(In):
     customer_id: uuid.UUID
     items: list[ItemIn] = Field(min_length=1, max_length=30)
-    use_coupon_book: bool = False
+    use_coupon_book: bool = False  # honoured only when a prepaid module (coupons) is enabled
     area: str | None = Field(default=None, max_length=120)
     delivery_date: date | None = None
     delivery_slot: str | None = Field(default=None, max_length=60)
@@ -408,6 +414,7 @@ async def create_order(
     if any(q > DASHBOARD_MAX_QTY for q in wanted.values()):
         raise unprocessable("quantity_above_limit", limit=DASHBOARD_MAX_QTY)
     key = f"dash:{idempotency_key}" if idempotency_key else None
+    enabled = await ctx.modules()
 
     async with ctx.tx() as s:
         customer = await s.get(Customer, body.customer_id)
@@ -434,7 +441,7 @@ async def create_order(
                     area=body.area or customer.area,
                     source="dashboard",
                     created_by=ctx.principal.actor,
-                    use_coupon_book=body.use_coupon_book,
+                    use_prepaid=body.use_coupon_book,
                     status=body.status,
                     delivery_date=body.delivery_date,
                     delivery_slot=body.delivery_slot,
@@ -443,6 +450,7 @@ async def create_order(
                 ),
                 now=now,
                 today=today,
+                redeem=redeem_hook(enabled),
             )
         except OrderError as exc:
             raise _order_error(exc) from exc
@@ -469,6 +477,7 @@ async def update_order(order_id: uuid.UUID, body: OrderPatch, ctx: Agent) -> Ord
     changes = body.model_dump(exclude_unset=True)
     if not changes:
         raise unprocessable("nothing_to_change")
+    enabled = await ctx.modules()
     async with ctx.tx() as s:
         order = await s.get(Order, order_id, with_for_update=True)
         if order is None:
@@ -495,9 +504,10 @@ async def update_order(order_id: uuid.UUID, body: OrderPatch, ctx: Agent) -> Ord
             before["status"], after["status"] = order.status, new_status
             order.status = new_status
             if new_status == "cancelled":
-                restored = await restore_coupon_bottles(s, order)
-                if restored:
-                    after["coupon_bottles_restored"] = restored
+                for give_back in cancel_hooks(enabled):
+                    restored = await give_back(s, order)
+                    if restored:
+                        after["coupon_bottles_restored"] = restored
                 locked = await s.get(Customer, order.customer_id, with_for_update=True)
                 if locked is not None and locked.lifetime_orders:
                     locked.lifetime_orders -= 1

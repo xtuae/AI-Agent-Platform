@@ -96,7 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(meta_webhook.router)
     app.include_router(auth_routes.router)
-    app.include_router(v1.router)
+    app.include_router(v1.build_router())
     return app
 
 

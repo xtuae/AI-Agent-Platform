@@ -30,6 +30,8 @@ from api.config import Settings, get_settings
 from api.core.logging import get_logger
 from api.db.session import Database
 from api.deps import get_database, get_redis
+from api.modules import registry
+from api.modules.registry import Enabled
 
 log = get_logger(__name__)
 
@@ -102,6 +104,11 @@ class Ctx:
         async with self.db.tenant_session(self.principal.tenant_id) as session:
             yield session
 
+    async def modules(self) -> Enabled:
+        """The tenant's enabled modules (one platform query)."""
+        async with self.db.platform_session() as s:
+            return await registry.enabled_for(s, self.principal.tenant_id)
+
     @asynccontextmanager
     async def platform(self) -> AsyncIterator[AsyncSession]:
         """Platform tables (tenant_users, tenant_settings…). NO RLS — every query MUST filter
@@ -119,6 +126,22 @@ def require(role: Role) -> Callable[..., Coroutine[Any, Any, Ctx]]:
         if not principal.at_least(role):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"requires the {role} role")
         return Ctx(principal=principal, db=db, redis=redis)
+
+    return dep
+
+
+def module_enabled(key: str) -> Callable[..., Coroutine[Any, Any, None]]:
+    """Gate for a module's router: a tenant without the module gets 404, exactly as if the route
+    did not exist (no hint about which modules exist)."""
+
+    async def dep(
+        principal: Annotated[Principal, Depends(current_principal)],
+        db: Annotated[Database, Depends(get_database)],
+    ) -> None:
+        async with db.platform_session() as s:
+            enabled = await registry.enabled_for(s, principal.tenant_id)
+        if not enabled.has(key):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
 
     return dep
 

@@ -79,7 +79,7 @@ async def test_phone_order_end_to_end_without_excel(
 
     # 1. new customer, typed the way people type UAE numbers
     r = await h.post(
-        "/api/v1/customers",
+        "/api/v1/contacts",
         headers=agent,
         json={
             "wa_id": "050 123 4567",
@@ -96,7 +96,7 @@ async def test_phone_order_end_to_end_without_excel(
 
     # 2. the order — the client sends SKUs and quantities, the server prices it
     r = await h.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers={**agent, "idempotency-key": "tap-1"},
         json={
             "customer_id": customer["id"],
@@ -121,7 +121,7 @@ async def test_phone_order_end_to_end_without_excel(
 
     # a double-tap on "Place order" returns the same order
     again = await h.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers={**agent, "idempotency-key": "tap-1"},
         json={"customer_id": customer["id"], "items": [{"sku": "CAN-5G", "qty": 4}]},
     )
@@ -129,7 +129,7 @@ async def test_phone_order_end_to_end_without_excel(
     assert again.json()["id"] == order["id"]
 
     # 3. it is on today's delivery list, grouped by area, with what to collect
-    dl = (await h.get("/api/v1/orders/delivery-list", headers=agent)).json()
+    dl = (await h.get("/api/v1/m/orders/delivery-list", headers=agent)).json()
     jlt = next(g for g in dl["groups"] if g["area"] == "JLT")
     assert jlt["bottles"] == 6
     assert jlt["to_collect_aed"] == "33.00"
@@ -137,9 +137,9 @@ async def test_phone_order_end_to_end_without_excel(
 
     # 4. out for delivery → delivered
     for status in ("out_for_delivery", "delivered"):
-        r = await h.patch(f"/api/v1/orders/{order['id']}", headers=agent, json={"status": status})
+        r = await h.patch(f"/api/v1/m/orders/{order['id']}", headers=agent, json={"status": status})
         assert r.status_code == 200, r.text
-    detail = (await h.get(f"/api/v1/orders/{order['id']}", headers=agent)).json()
+    detail = (await h.get(f"/api/v1/m/orders/{order['id']}", headers=agent)).json()
     assert detail["status"] == "delivered"
     assert detail["next_statuses"] == []
     assert [e["action"] for e in detail["history"]] == [
@@ -150,22 +150,27 @@ async def test_phone_order_end_to_end_without_excel(
     assert all(e["actor"].startswith("user:") for e in detail["history"])
 
     # 5. the customer's history shows it
-    c = (await h.get(f"/api/v1/customers/{customer['id']}", headers=agent)).json()
-    assert c["lifetime_orders"] == 1
-    assert c["orders"][0]["order_no"] == order["order_no"]
+    c = (await h.get(f"/api/v1/contacts/{customer['id']}", headers=agent)).json()
+    assert c["modules"]["orders"]["lifetime_orders"] == 1
+    assert c["modules"]["orders"]["orders"][0]["order_no"] == order["order_no"]
 
     # 6. and the Today screen counts it
     t = (await h.get("/api/v1/today", headers=agent)).json()
-    assert t["orders"]["count"] == 1
-    assert t["orders"]["value_aed"] == "33.00"
-    assert t["orders_by_day"][-1] == {"day": today.isoformat(), "orders": 1, "value_aed": "33.00"}
+    orders_today = t["modules"]["orders"]
+    assert orders_today["count"] == 1
+    assert orders_today["value_aed"] == "33.00"
+    assert orders_today["by_day"][-1] == {
+        "day": today.isoformat(),
+        "orders": 1,
+        "value_aed": "33.00",
+    }
 
 
 async def test_client_cannot_price_an_order(
     dash: DashHarness, tenants: TenantPair, shop: dict[str, Any]
 ) -> None:
     r = await dash.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=shop["agent"],
         json={
             "customer_id": str(tenants.customer_a),
@@ -195,7 +200,7 @@ async def test_order_refusals(
     code: str,
 ) -> None:
     r = await dash.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=shop["agent"],
         json={"customer_id": str(tenants.customer_a), "items": items, **extra},
     )
@@ -209,11 +214,11 @@ async def test_quantity_typo_guard(
     dash: DashHarness, tenants: TenantPair, shop: dict[str, Any]
 ) -> None:
     body = {"customer_id": str(tenants.customer_a), "items": [{"sku": "CAN-5G", "qty": 250}]}
-    r = await dash.client.post("/api/v1/orders", headers=shop["agent"], json=body)
+    r = await dash.client.post("/api/v1/m/orders", headers=shop["agent"], json=body)
     assert r.status_code == 201  # above the agent's 200 guard is fine for a person
     body["items"] = [{"sku": "CAN-5G", "qty": 1001}]
     assert (
-        await dash.client.post("/api/v1/orders", headers=shop["agent"], json=body)
+        await dash.client.post("/api/v1/m/orders", headers=shop["agent"], json=body)
     ).status_code == 422
 
 
@@ -233,7 +238,7 @@ async def test_coupon_order_and_cancellation_puts_bottles_back(
         await s.flush()
         book_id = book.id
     r = await dash.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=shop["agent"],
         json={
             "customer_id": str(tenants.customer_a),
@@ -248,7 +253,7 @@ async def test_coupon_order_and_cancellation_puts_bottles_back(
         assert (await s.get(CouponBook, book_id)).bottles_remaining == 1  # type: ignore[union-attr]
 
     r = await dash.client.patch(
-        f"/api/v1/orders/{order['id']}", headers=shop["agent"], json={"status": "cancelled"}
+        f"/api/v1/m/orders/{order['id']}", headers=shop["agent"], json={"status": "cancelled"}
     )
     assert r.status_code == 200
     async with dash.db.tenant_session(tenants.a) as s:
@@ -256,15 +261,15 @@ async def test_coupon_order_and_cancellation_puts_bottles_back(
         assert (await s.get(Customer, tenants.customer_a)).lifetime_orders == 0  # type: ignore[union-attr]
     # cancelled is final
     r = await dash.client.patch(
-        f"/api/v1/orders/{order['id']}", headers=shop["agent"], json={"status": "confirmed"}
+        f"/api/v1/m/orders/{order['id']}", headers=shop["agent"], json={"status": "confirmed"}
     )
     assert r.status_code == 409
     r = await dash.client.patch(
-        f"/api/v1/orders/{order['id']}", headers=shop["agent"], json={"area": "Somewhere"}
+        f"/api/v1/m/orders/{order['id']}", headers=shop["agent"], json={"area": "Somewhere"}
     )
     assert r.status_code == 409
     r = await dash.client.patch(
-        f"/api/v1/orders/{order['id']}",
+        f"/api/v1/m/orders/{order['id']}",
         headers=shop["agent"],
         json={"notes": "customer travelling"},
     )
@@ -275,7 +280,7 @@ async def test_status_transitions_follow_the_state_machine(
     dash: DashHarness, tenants: TenantPair, shop: dict[str, Any]
 ) -> None:
     r = await dash.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=shop["agent"],
         json={
             "customer_id": str(tenants.customer_a),
@@ -284,7 +289,7 @@ async def test_status_transitions_follow_the_state_machine(
         },
     )
     oid = r.json()["id"]
-    url = f"/api/v1/orders/{oid}"
+    url = f"/api/v1/m/orders/{oid}"
     bad = await dash.client.patch(url, headers=shop["agent"], json={"status": "delivered"})
     assert bad.status_code == 409
     assert bad.json()["detail"]["allowed"] == ["cancelled", "confirmed"]
@@ -319,19 +324,19 @@ async def test_order_list_filters(
             )
     get = dash.client.get
     h = shop["viewer"]
-    assert (await get("/api/v1/orders", headers=h)).json()["total"] == 2
-    assert (await get("/api/v1/orders", headers=h, params={"status": ["delivered"]})).json()[
+    assert (await get("/api/v1/m/orders", headers=h)).json()["total"] == 2
+    assert (await get("/api/v1/m/orders", headers=h, params={"status": ["delivered"]})).json()[
         "total"
     ] == 1
-    assert (await get("/api/v1/orders", headers=h, params={"area": "jlt"})).json()["total"] == 1
+    assert (await get("/api/v1/m/orders", headers=h, params={"area": "jlt"})).json()["total"] == 1
     r = await get(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=h,
         params={"date_field": "delivery", "from": (today + timedelta(days=1)).isoformat()},
     )
     assert [o["area"] for o in r.json()["items"]] == ["Marina"]
-    assert (await get("/api/v1/orders", headers=h, params={"q": "XJLT"})).json()["total"] == 1
-    assert (await get("/api/v1/orders/areas", headers=h)).json() == ["JLT", "Marina"]
+    assert (await get("/api/v1/m/orders", headers=h, params={"q": "XJLT"})).json()["total"] == 1
+    assert (await get("/api/v1/m/orders/areas", headers=h)).json() == ["JLT", "Marina"]
 
 
 # ---------------------------------------------------------------- conversations
@@ -552,20 +557,20 @@ async def test_customer_search_create_and_opt_out(
     dash: DashHarness, tenants: TenantPair, shop: dict[str, Any]
 ) -> None:
     h = dash.client
-    r = await h.post("/api/v1/customers", headers=shop["agent"], json={"wa_id": "+971 50 000 0001"})
+    r = await h.post("/api/v1/contacts", headers=shop["agent"], json={"wa_id": "+971 50 000 0001"})
     assert r.status_code == 409
     assert r.json()["detail"]["id"] == str(tenants.customer_a)
     assert (
-        await h.post("/api/v1/customers", headers=shop["agent"], json={"wa_id": "12"})
+        await h.post("/api/v1/contacts", headers=shop["agent"], json={"wa_id": "12"})
     ).status_code == 422
 
     found = (
-        await h.get("/api/v1/customers", headers=shop["viewer"], params={"q": "0000001"})
+        await h.get("/api/v1/contacts", headers=shop["viewer"], params={"q": "0000001"})
     ).json()
     assert [c["id"] for c in found["items"]] == [str(tenants.customer_a)]
 
     # a person may opt someone OUT, never IN
-    url = f"/api/v1/customers/{tenants.customer_a}"
+    url = f"/api/v1/contacts/{tenants.customer_a}"
     assert (
         await h.patch(url, headers=shop["agent"], json={"opt_in_status": "opted_in"})
     ).status_code == 422
@@ -606,15 +611,15 @@ async def test_settings_hours_and_escalation_number(
 async def test_price_change_applies_to_the_next_order(
     dash: DashHarness, tenants: TenantPair, shop: dict[str, Any]
 ) -> None:
-    products = (await dash.client.get("/api/v1/products", headers=shop["viewer"])).json()
+    products = (await dash.client.get("/api/v1/m/catalog/products", headers=shop["viewer"])).json()
     can = next(p for p in products if p["sku"] == "CAN-5G")
     r = await dash.client.patch(
-        f"/api/v1/products/{can['id']}", headers=shop["admin"], json={"price_aed": "8.00"}
+        f"/api/v1/m/catalog/products/{can['id']}", headers=shop["admin"], json={"price_aed": "8.00"}
     )
     assert r.status_code == 200
     assert r.json()["price_aed"] == "8.00"
     r = await dash.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=shop["agent"],
         json={"customer_id": str(tenants.customer_a), "items": [{"sku": "CAN-5G", "qty": 2}]},
     )

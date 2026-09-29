@@ -28,7 +28,7 @@ from typing import Any, Literal
 from api.agents import prompts
 from api.agents.canned import canned
 from api.agents.context import Persona
-from api.agents.tools import TOOLS, execute, tool_schemas
+from api.agents.tools import execute, tool_schemas, toolset
 from api.agents.tools.base import Escalation, EscalationReason, ToolContext, escalate
 from api.agents.validator import ValidationInput, ValidationResult, validate
 from api.core.logging import get_logger
@@ -39,7 +39,6 @@ log = get_logger(__name__)
 
 SUPPORT_TEMPERATURE = 0.3
 SUPPORT_MAX_TOKENS = 300
-PROMPT_VERSION = f"{prompts.SUPPORT}+{prompts.CLASSIFIER}"
 
 
 @dataclass(frozen=True)
@@ -147,7 +146,7 @@ class SupportAgent:
                     provider=persona.llm_provider,
                     model=persona.chat_model,
                     messages=messages,
-                    tools=tool_schemas(),
+                    tools=tool_schemas(persona.enabled),
                     temperature=SUPPORT_TEMPERATURE,
                     max_tokens=SUPPORT_MAX_TOKENS,
                 )
@@ -191,6 +190,7 @@ class SupportAgent:
                     now=turn.now,
                     today=turn.today,
                     feature_flags=turn.persona.feature_flags,
+                    enabled=turn.persona.enabled,
                 )
                 for call in res.tool_calls:
                     outcome.tools_called.append(call.name)
@@ -227,7 +227,7 @@ class SupportAgent:
                 is_new_conversation=turn.is_new_conversation,
                 disclosure_markers=turn.persona.disclosure_markers,
                 other_tenant_names=turn.other_tenant_names,
-                tool_names=tuple(TOOLS),
+                tool_names=tuple(toolset(turn.persona.enabled)),
             )
         )
 

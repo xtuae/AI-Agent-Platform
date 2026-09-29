@@ -205,9 +205,9 @@ async def test_deactivation_kills_live_access_tokens_immediately(
     u = await dash.user(tenants.a, "agent")
     token = (await _login(dash, u.email)).json()["access_token"]
     headers = {"authorization": f"Bearer {token}"}
-    assert (await dash.client.get("/api/v1/orders", headers=headers)).status_code == 200
+    assert (await dash.client.get("/api/v1/m/orders", headers=headers)).status_code == 200
     await dash.client.patch(f"/api/v1/team/{u.id}", headers=admin, json={"role": "viewer"})
-    assert (await dash.client.get("/api/v1/orders", headers=headers)).status_code == 401
+    assert (await dash.client.get("/api/v1/m/orders", headers=headers)).status_code == 401
 
 
 async def test_password_change_ends_other_sessions_but_keeps_this_one(
@@ -289,10 +289,10 @@ async def test_token_integrity(dash: DashHarness, tenants: TenantPair, settings:
         ),
     }
     for name, token in cases.items():
-        r = await dash.client.get("/api/v1/orders", headers={"authorization": f"Bearer {token}"})
+        r = await dash.client.get("/api/v1/m/orders", headers={"authorization": f"Bearer {token}"})
         assert r.status_code == 401, name
-    assert (await dash.client.get("/api/v1/orders")).status_code == 401
-    r = await dash.client.get("/api/v1/orders", headers={"authorization": f"Basic {good}"})
+    assert (await dash.client.get("/api/v1/m/orders")).status_code == 401
+    r = await dash.client.get("/api/v1/m/orders", headers={"authorization": f"Basic {good}"})
     assert r.status_code == 401
 
 
@@ -308,20 +308,18 @@ async def test_role_gating(dash: DashHarness, tenants: TenantPair) -> None:
         "price_aed": "2.50",
     }
 
-    assert (await dash.client.get("/api/v1/orders", headers=viewer)).status_code == 200
+    assert (await dash.client.get("/api/v1/m/orders", headers=viewer)).status_code == 200
     assert (
-        await dash.client.post("/api/v1/customers", headers=viewer, json=cust)
+        await dash.client.post("/api/v1/contacts", headers=viewer, json=cust)
     ).status_code == 403
-    assert (
-        await dash.client.post("/api/v1/customers", headers=agent, json=cust)
-    ).status_code == 201
+    assert (await dash.client.post("/api/v1/contacts", headers=agent, json=cust)).status_code == 201
     assert (await dash.client.get("/api/v1/team", headers=agent)).status_code == 403
     assert (
-        await dash.client.post("/api/v1/products", headers=agent, json=product)
+        await dash.client.post("/api/v1/m/catalog/products", headers=agent, json=product)
     ).status_code == 403
     assert (await dash.client.patch("/api/v1/settings", headers=agent, json={})).status_code == 403
     assert (
-        await dash.client.post("/api/v1/products", headers=admin, json=product)
+        await dash.client.post("/api/v1/m/catalog/products", headers=admin, json=product)
     ).status_code == 201
     assert (await dash.client.get("/api/v1/team", headers=admin)).status_code == 200
 
@@ -332,7 +330,7 @@ async def test_auth_answers_503_without_a_jwt_secret(
     token, _ = issue_access(settings, user_id=uuid.uuid4(), tenant_id=tenants.a, role="admin")
     monkeypatch.setattr(settings, "jwt_secret", None)
     assert (await _login(dash, "x@example.test")).status_code == 503
-    r = await dash.client.get("/api/v1/orders", headers={"authorization": f"Bearer {token}"})
+    r = await dash.client.get("/api/v1/m/orders", headers={"authorization": f"Bearer {token}"})
     assert r.status_code == 503
 
 

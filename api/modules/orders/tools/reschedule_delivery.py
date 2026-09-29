@@ -21,8 +21,8 @@ from api.agents.tools.base import (
     error,
     escalate_ctx,
 )
-from api.agents.tools.get_order_status import normalise_order_no
 from api.db.models import Order
+from api.modules.orders.tools.get_order_status import normalise_order_no
 
 LOCKED_STATUSES = frozenset({"out_for_delivery", "delivered"})
 

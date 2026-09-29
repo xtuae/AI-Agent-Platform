@@ -26,7 +26,7 @@ from pydantic import SecretStr
 
 from api.config import Settings, get_settings
 from api.core.passwords import hash_password
-from api.db.models import Customer, Tenant, TenantChannel, TenantUser
+from api.db.models import Customer, Tenant, TenantChannel, TenantModule, TenantUser
 from api.db.session import Database
 from api.main import create_app
 from api.meta.client import MetaClient
@@ -70,10 +70,19 @@ class TenantPair:
     customer_b: uuid.UUID
 
 
-async def make_tenant(db: Database, label: str) -> uuid.UUID:
+WATER_PRESET = ("catalog", "orders", "coupons")
+
+
+async def make_tenant(
+    db: Database, label: str, *, modules: tuple[str, ...] = WATER_PRESET
+) -> uuid.UUID:
+    """A fresh tenant. Test tenants get the water preset unless a test says otherwise, because
+    that is what every Phase 0-3 behaviour was specified against."""
     tenant_id = uuid.uuid4()
     async with db.platform_session() as s:
         s.add(Tenant(id=tenant_id, name=f"Test {label}", slug=f"t-{label}-{tenant_id.hex[:10]}"))
+        await s.flush()
+        s.add_all(TenantModule(tenant_id=tenant_id, module_key=k) for k in modules)
     return tenant_id
 
 

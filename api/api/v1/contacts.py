@@ -1,4 +1,6 @@
-"""/api/v1/customers — search, coupon balance, order history, opt-in status and its evidence.
+"""/api/v1/contacts — the people a business talks to (the `customers` table). Core, for every
+tenant: search, profile, opt-in status and its evidence, conversations. Each enabled module adds a
+panel under `modules.<key>` (orders: history; coupons: books and balance).
 
 Opt-in can only be recorded from the customer's own action (the agent's record_opt_in, or an
 import with evidence in Phase 5) — the dashboard cannot mark anyone opted in, because TDRA needs
@@ -8,7 +10,7 @@ proof we would not have. Opting someone OUT from the dashboard is always allowed
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, status
@@ -22,15 +24,14 @@ from api.api.v1.common import (
     conflict,
     load_tenant,
     local_today,
-    money,
     normalise_wa_id,
     not_found,
     unprocessable,
 )
 from api.auth.deps import Agent, Viewer
-from api.db.models import Conversation, CouponBook, Customer, Order
+from api.db.models import Conversation, Customer
 
-router = APIRouter(prefix="/customers", tags=["customers"])
+router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 OptIn = Literal["pending", "opted_in", "opted_out"]
 EDITABLE = ("name", "area", "emirate", "address_note", "language")
@@ -45,30 +46,6 @@ class CustomerRow(BaseModel):
     language: str | None
     source: str | None
     opt_in_status: OptIn
-    lifetime_orders: int
-    last_order_at: datetime | None
-    coupon_bottles_remaining: int
-
-
-class CouponBookOut(BaseModel):
-    id: uuid.UUID
-    sku: str | None
-    bottles_total: int | None
-    bottles_free: int | None
-    bottles_remaining: int | None
-    price_aed: str | None
-    purchased_at: datetime | None
-    expires_at: date | None
-    live: bool
-
-
-class OrderBrief(BaseModel):
-    id: uuid.UUID
-    order_no: str
-    status: str
-    total_aed: str | None
-    created_at: datetime
-    delivery_date: date | None
 
 
 class ConversationBrief(BaseModel):
@@ -83,9 +60,8 @@ class CustomerDetail(CustomerRow):
     opt_in_at: datetime | None
     opt_in_evidence: dict[str, Any] | None
     opt_out_at: datetime | None
-    coupon_books: list[CouponBookOut]
-    orders: list[OrderBrief]
     conversations: list[ConversationBrief]
+    modules: dict[str, dict[str, Any]]  # one panel per enabled module that has one
 
 
 class CustomerPage(BaseModel):
@@ -116,20 +92,7 @@ class CustomerPatch(In):
     opt_out: Literal[True] | None = None  # the only opt-in change a person can make here
 
 
-def _balance_subquery(today: date) -> Any:
-    return (
-        select(func.coalesce(func.sum(CouponBook.bottles_remaining), 0))
-        .where(
-            CouponBook.customer_id == Customer.id,
-            CouponBook.bottles_remaining > 0,
-            (CouponBook.expires_at.is_(None)) | (CouponBook.expires_at >= today),
-        )
-        .correlate(Customer)
-        .scalar_subquery()
-    )
-
-
-def _row(c: Customer, balance: int) -> CustomerRow:
+def _row(c: Customer) -> CustomerRow:
     return CustomerRow(
         id=c.id,
         wa_id=c.wa_id,
@@ -139,9 +102,6 @@ def _row(c: Customer, balance: int) -> CustomerRow:
         language=c.language,
         source=c.source,
         opt_in_status=c.opt_in_status,  # type: ignore[arg-type]  # DB CHECK
-        lifetime_orders=c.lifetime_orders or 0,
-        last_order_at=c.last_order_at,
-        coupon_bottles_remaining=int(balance or 0),
     )
 
 
@@ -169,7 +129,6 @@ async def list_customers(
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> CustomerPage:
-    today = local_today(await load_tenant(ctx))
     q = q.strip() if q else None
     async with ctx.tx() as s:
         total = int(
@@ -177,42 +136,24 @@ async def list_customers(
             or 0
         )
         rows = (
-            await s.execute(
-                _search(select(Customer, _balance_subquery(today)), q, opt_in, area)
+            await s.scalars(
+                _search(select(Customer), q, opt_in, area)
                 .order_by(Customer.last_order_at.desc().nulls_last(), Customer.name)
                 .limit(limit)
                 .offset(offset)
             )
         ).all()
-    return CustomerPage(items=[_row(c, b) for c, b in rows], total=total)
+    return CustomerPage(items=[_row(c) for c in rows], total=total)
 
 
 async def _detail(ctx: Viewer | Agent, customer_id: uuid.UUID) -> CustomerDetail:
     today = local_today(await load_tenant(ctx))
+    enabled = await ctx.modules()
+    panels: dict[str, dict[str, Any]] = {}
     async with ctx.tx() as s:
-        row = (
-            await s.execute(
-                select(Customer, _balance_subquery(today)).where(Customer.id == customer_id)
-            )
-        ).first()
-        if row is None:
+        c = await s.get(Customer, customer_id)
+        if c is None:
             raise not_found("customer")
-        c, balance = row
-        books = (
-            await s.scalars(
-                select(CouponBook)
-                .where(CouponBook.customer_id == c.id)
-                .order_by(CouponBook.purchased_at.desc().nulls_last())
-            )
-        ).all()
-        orders = (
-            await s.scalars(
-                select(Order)
-                .where(Order.customer_id == c.id)
-                .order_by(Order.created_at.desc())
-                .limit(50)
-            )
-        ).all()
         convs = (
             await s.scalars(
                 select(Conversation)
@@ -221,44 +162,21 @@ async def _detail(ctx: Viewer | Agent, customer_id: uuid.UUID) -> CustomerDetail
                 .limit(20)
             )
         ).all()
-    base = _row(c, balance)
+        for module in enabled.modules:
+            if module.contact_panel is not None:
+                panels[module.key] = await module.contact_panel(s, c.id, today)
     return CustomerDetail(
-        **base.model_dump(),
+        **_row(c).model_dump(),
         address_note=c.address_note,
         external_ref=c.external_ref,
         opt_in_at=c.opt_in_at,
         opt_in_evidence=c.opt_in_evidence,
         opt_out_at=c.opt_out_at,
-        coupon_books=[
-            CouponBookOut(
-                id=b.id,
-                sku=b.sku,
-                bottles_total=b.bottles_total,
-                bottles_free=b.bottles_free,
-                bottles_remaining=b.bottles_remaining,
-                price_aed=money(b.price_aed),
-                purchased_at=b.purchased_at,
-                expires_at=b.expires_at,
-                live=(b.bottles_remaining or 0) > 0
-                and (b.expires_at is None or b.expires_at >= today),
-            )
-            for b in books
-        ],
-        orders=[
-            OrderBrief(
-                id=o.id,
-                order_no=o.order_no,
-                status=o.status,
-                total_aed=money(o.total_aed),
-                created_at=o.created_at,
-                delivery_date=o.delivery_date,
-            )
-            for o in orders
-        ],
         conversations=[
             ConversationBrief(id=v.id, state=v.state, last_inbound_at=v.last_inbound_at)
             for v in convs
         ],
+        modules=panels,
     )
 
 

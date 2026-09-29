@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db.models import AuditLog, Conversation
+from api.modules.registry import Enabled
 
 EscalationReason = Literal[
     "complaint",
@@ -57,6 +58,7 @@ class ToolContext:
     now: datetime
     today: date  # in the tenant's timezone
     feature_flags: dict[str, Any] = field(default_factory=dict)
+    enabled: Enabled = field(default_factory=Enabled)  # the tenant's modules and their configs
     escalations: list[Escalation] = field(default_factory=list)
 
 

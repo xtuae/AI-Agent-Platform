@@ -1,4 +1,4 @@
-"""/api/v1/today — the Today screen: orders today, live conversations, awaiting-human count,
+"""/api/v1/today — the Today screen: live conversations, awaiting-human count,
 month-to-date message spend against the cap, agent health, and the data for its two charts.
 
 Spend comes from usage_daily (UTC days, as metered at send time). For a tenant whose Meta charges
@@ -10,35 +10,28 @@ cost is visible.
 from __future__ import annotations
 
 import contextlib
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from arq.constants import health_check_key_suffix
 from fastapi import APIRouter
 from pydantic import BaseModel
 from redis.exceptions import RedisError
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import func, select
 
-from api.api.v1.common import load_tenant, local_today, money, zone
+from api.api.v1.common import load_tenant, local_today, money
 from api.auth.deps import Viewer
 from api.config import get_settings
-from api.db.models import Conversation, Message, Order, TenantChannel, TenantSettings, UsageDaily
+from api.db.models import Conversation, Message, TenantChannel, TenantSettings, UsageDaily
+from api.modules.base import TodayScope
 
 router = APIRouter(tags=["today"])
 
 STUCK_AFTER = timedelta(minutes=5)
 TOKEN_WARN = timedelta(days=7)
-CHART_DAYS = 14
 
 Health = Literal["ok", "degraded", "down"]
-
-
-class OrdersToday(BaseModel):
-    count: int
-    value_aed: str
-    deliveries_due: int  # open orders with delivery_date = today
-    unscheduled: int  # open orders with no delivery date
 
 
 class Spend(BaseModel):
@@ -63,12 +56,6 @@ class AgentHealth(BaseModel):
     checks: list[HealthCheck]
 
 
-class DayPoint(BaseModel):
-    day: date
-    orders: int
-    value_aed: str
-
-
 class SpendPoint(BaseModel):
     day: date
     cumulative_aed: str
@@ -76,12 +63,12 @@ class SpendPoint(BaseModel):
 
 class TodayOut(BaseModel):
     date: date
-    orders: OrdersToday
     live_conversations: int
     awaiting_human: int
     spend: Spend
     health: AgentHealth
-    orders_by_day: list[DayPoint]
+    # each enabled module's Today data (orders: count, value, deliveries due, 14-day chart)
+    modules: dict[str, dict[str, Any]]
     spend_by_day: list[SpendPoint]
 
 
@@ -96,12 +83,8 @@ def _worst(statuses: list[Health]) -> Health:
 async def today(ctx: Viewer) -> TodayOut:
     settings = get_settings()
     tenant = await load_tenant(ctx)
-    tz = zone(tenant)
     now = datetime.now(UTC)
     day = local_today(tenant, now)
-    day_start = datetime.combine(day, time.min, tz).astimezone(UTC)
-    chart_start_day = day - timedelta(days=CHART_DAYS - 1)
-    chart_start = datetime.combine(chart_start_day, time.min, tz).astimezone(UTC)
     month_start = now.date().replace(day=1)  # usage_daily days are UTC
 
     async with ctx.platform() as s:
@@ -114,23 +97,13 @@ async def today(ctx: Viewer) -> TodayOut:
             )
         ).all()
 
-    open_statuses = ("confirmed", "out_for_delivery")
+    enabled = await ctx.modules()
+    scope = TodayScope(tenant_id=ctx.tenant_id, timezone=tenant.timezone, today=day)
+    module_data: dict[str, dict[str, Any]] = {}
     async with ctx.tx() as s:
-        o_count, o_value = (
-            await s.execute(
-                select(func.count(), func.coalesce(func.sum(Order.total_aed), 0)).where(
-                    Order.created_at >= day_start, Order.status != "cancelled"
-                )
-            )
-        ).one()
-        due = await s.scalar(
-            select(func.count()).where(Order.delivery_date == day, Order.status.in_(open_statuses))
-        )
-        unscheduled = await s.scalar(
-            select(func.count()).where(
-                Order.delivery_date.is_(None), Order.status.in_(open_statuses)
-            )
-        )
+        for module in enabled.modules:
+            if module.today is not None:
+                module_data[module.key] = await module.today(s, scope)
         live = await s.scalar(
             select(func.count()).where(
                 Conversation.state != "closed", Conversation.service_window_expires_at > now
@@ -146,17 +119,6 @@ async def today(ctx: Viewer) -> TodayOut:
                 .order_by(UsageDaily.day)
             )
         ).all()
-        local_day = cast(func.timezone(tenant.timezone, Order.created_at), Date)
-        by_day = {
-            d: (int(n), v)
-            for d, n, v in (
-                await s.execute(
-                    select(local_day, func.count(), func.coalesce(func.sum(Order.total_aed), 0))
-                    .where(Order.created_at >= chart_start, Order.status != "cancelled")
-                    .group_by(local_day)
-                )
-            ).all()
-        }
         stuck = await s.scalar(
             select(func.count())
             .select_from(Message)
@@ -238,12 +200,6 @@ async def today(ctx: Viewer) -> TodayOut:
             )
         )
 
-    points: list[DayPoint] = []
-    for i in range(CHART_DAYS):
-        d = chart_start_day + timedelta(days=i)
-        n, v = by_day.get(d, (0, Decimal(0)))
-        points.append(DayPoint(day=d, orders=n, value_aed=money(Decimal(v)) or "0.00"))
-
     pct: float | None = None
     if cap:
         with contextlib.suppress(ArithmeticError):
@@ -251,12 +207,6 @@ async def today(ctx: Viewer) -> TodayOut:
 
     return TodayOut(
         date=day,
-        orders=OrdersToday(
-            count=int(o_count),
-            value_aed=money(Decimal(o_value)) or "0.00",
-            deliveries_due=int(due or 0),
-            unscheduled=int(unscheduled or 0),
-        ),
         live_conversations=int(live or 0),
         awaiting_human=int(awaiting or 0),
         spend=Spend(
@@ -273,6 +223,6 @@ async def today(ctx: Viewer) -> TodayOut:
             last_agent_reply_at=last_reply,
             checks=checks,
         ),
-        orders_by_day=points,
+        modules=module_data,
         spend_by_day=spend_points,
     )

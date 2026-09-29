@@ -57,6 +57,7 @@ from api.db.models import (
     TenantUser,
 )
 from api.db.session import Database
+from api.modules import admin as modules_admin
 from api.webhooks.router import TenantRouter
 
 log = get_logger("seed_tenant")
@@ -78,6 +79,10 @@ class TenantProfile:
     meta_charges_borne_by_us_until: date | None = None
     monthly_message_cap_aed: Decimal | None = None
     agent_persona: dict[str, Any] = field(default_factory=dict)
+    # modules: preset names or module keys (api/modules/registry.py), plus per-module config
+    modules: tuple[str, ...] = ()
+    module_config: dict[str, dict[str, Any]] = field(default_factory=dict)
+    contact_label: str | None = None
 
 
 TENANT_PROFILES: dict[str, TenantProfile] = {
@@ -91,6 +96,9 @@ TENANT_PROFILES: dict[str, TenantProfile] = {
         # 01_architecture §5.3: "the AED 1,500 monthly ceiling".
         monthly_message_cap_aed=Decimal("1500.00"),
         agent_persona={"languages": ["en", "ar", "ar-latn"]},
+        # Only 5-gallon cans (water) + snacks as cross-sell; coupon books for 30/60/120 days.
+        modules=("water_delivery",),
+        contact_label="Customers",
     ),
 }
 
@@ -214,6 +222,12 @@ async def seed(db: Database, args: SeedArgs, *, router: TenantRouter | None = No
         ts.monthly_message_cap_aed = profile.monthly_message_cap_aed
         ts.agent_persona = profile.agent_persona or ts.agent_persona
         ts.escalation_phone = args.escalation_phone or ts.escalation_phone
+        ts.contact_label = profile.contact_label or ts.contact_label
+        await s.flush()
+        if profile.modules:
+            await modules_admin.enable(
+                s, tenant_id, profile.modules, configs=profile.module_config or None
+            )
 
         admin = False
         if args.admin_email and args.admin_password:

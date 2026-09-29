@@ -91,6 +91,25 @@ class TenantSettings(Base):
     escalation_phone: Mapped[str | None] = mapped_column(Text)
     agent_persona: Mapped[dict[str, Any] | None]
     feature_flags: Mapped[dict[str, Any] | None]
+    # What the dashboard calls the people this business talks to: Customers, Clients, Leads…
+    contact_label: Mapped[str | None] = mapped_column(Text)
+
+
+class TenantModule(Base):
+    """Which capability modules a tenant has (api/modules). Written by HMH Labz only
+    (api.scripts.modules); a client admin may change `config`, never `enabled`."""
+
+    __tablename__ = "tenant_modules"
+    __table_args__ = (CheckConstraint("module_key ~ '^[a-z][a-z0-9_]*$'", name="key"),)
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
+    )
+    module_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    config: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+    enabled_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
 class PlatformUser(Base):

@@ -3,9 +3,8 @@
 One implementation of the money rules, so a dashboard order and an agent order cannot disagree:
 * every SKU exists, is active and priced for this tenant
 * the total is recomputed from the products table; callers never supply a price
-* coupon books redeem `water`-category bottles one-for-one (ASSUMPTION to confirm with the
-  client — Phase 2 notes); the book used is recorded on each covered line so a cancellation can
-  put the bottles back
+* prepaid redemption (e.g. coupon books) goes through the `order_redeem` extension point: the
+  orders module does not know what a coupon is, the coupons module plugs in
 * order_no is a per-tenant sequence from 1001, serialised with an advisory lock
 * the customer's lifetime_orders / last_order_at are bumped
 
@@ -15,6 +14,7 @@ Runs inside the caller's tenant transaction.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -23,7 +23,8 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.db.models import CouponBook, Customer, Order, Product
+from api.db.models import Customer, Order, Product
+from api.modules.registry import Enabled
 
 CENT = Decimal("0.01")
 
@@ -35,6 +36,32 @@ class OrderError(Exception):
         self.details = details
 
 
+@dataclass(frozen=True)
+class Redemption:
+    """What a prepaid module took: which SKUs it paid for, and where from."""
+
+    covered_skus: frozenset[str]
+    units: int
+    source_id: str  # recorded on each covered line, so a cancellation can give it back
+    remaining: int
+
+
+# (session, customer_id, wanted sku→qty, products, today) → Redemption, or raise OrderError
+RedeemHook = Callable[
+    [AsyncSession, uuid.UUID, dict[str, int], dict[str, Product], date], Awaitable[Redemption]
+]
+# (session, cancelled order) → units given back
+CancelHook = Callable[[AsyncSession, Order], Awaitable[int]]
+
+
+def redeem_hook(enabled: Enabled) -> RedeemHook | None:
+    return next((m.order_redeem for m in enabled.modules if m.order_redeem), None)
+
+
+def cancel_hooks(enabled: Enabled) -> list[CancelHook]:
+    return [m.order_cancelled for m in enabled.modules if m.order_cancelled]
+
+
 @dataclass
 class OrderRequest:
     customer_id: uuid.UUID
@@ -42,7 +69,7 @@ class OrderRequest:
     area: str | None
     source: str  # 'agent' | 'dashboard' | 'manual'
     created_by: str
-    use_coupon_book: bool = False
+    use_prepaid: bool = False
     status: str = "confirmed"
     delivery_date: date | None = None
     delivery_slot: str | None = None
@@ -56,29 +83,11 @@ class OrderRequest:
 class Placed:
     order: Order
     lines: list[dict[str, Any]]
-    bottles_from_coupon: int
-    coupon_bottles_remaining: int | None
+    redemption: Redemption | None
 
 
 def money(value: Decimal | None) -> str | None:
     return None if value is None else str(value.quantize(CENT))
-
-
-async def live_coupon_books(
-    s: AsyncSession, customer_id: uuid.UUID, today: date, *, lock: bool = False
-) -> list[CouponBook]:
-    stmt = (
-        select(CouponBook)
-        .where(
-            CouponBook.customer_id == customer_id,
-            CouponBook.bottles_remaining > 0,
-            (CouponBook.expires_at.is_(None)) | (CouponBook.expires_at >= today),
-        )
-        .order_by(CouponBook.expires_at.asc().nulls_last())
-    )
-    if lock:
-        stmt = stmt.with_for_update()
-    return list((await s.scalars(stmt)).all())
 
 
 async def load_products(s: AsyncSession, skus: list[str]) -> dict[str, Product]:
@@ -107,36 +116,30 @@ async def next_order_no(s: AsyncSession, tenant_id: uuid.UUID) -> str:
 
 
 async def place_order(
-    s: AsyncSession, tenant_id: uuid.UUID, req: OrderRequest, *, now: datetime, today: date
+    s: AsyncSession,
+    tenant_id: uuid.UUID,
+    req: OrderRequest,
+    *,
+    now: datetime,
+    today: date,
+    redeem: RedeemHook | None = None,
 ) -> Placed:
     if not req.items:
         raise OrderError("no_items")
     products = await load_products(s, list(req.items))
 
-    water_qty = sum(q for sku, q in req.items.items() if products[sku].category == "water")
-    book: CouponBook | None = None
-    if req.use_coupon_book:
-        if water_qty == 0:
-            raise OrderError(
-                "coupon_not_applicable", reason="coupon books cover water bottles only"
-            )
-        books = await live_coupon_books(s, req.customer_id, today, lock=True)
-        book = next((b for b in books if (b.bottles_remaining or 0) >= water_qty), None)
-        if book is None:
-            raise OrderError(
-                "insufficient_coupon_balance",
-                bottles_requested=water_qty,
-                bottles_remaining=sum(b.bottles_remaining or 0 for b in books),
-                has_live_coupon_book=bool(books),
-            )
-        book.bottles_remaining = (book.bottles_remaining or 0) - water_qty
+    redemption: Redemption | None = None
+    if req.use_prepaid:
+        if redeem is None:
+            raise OrderError("prepaid_not_available")
+        redemption = await redeem(s, req.customer_id, req.items, products, today)
 
     lines: list[dict[str, Any]] = []
     total = Decimal("0.00")
     for sku, qty in req.items.items():
         p = products[sku]
         unit = p.price_aed or Decimal(0)
-        covered = book is not None and p.category == "water"
+        covered = redemption is not None and sku in redemption.covered_skus
         line_total = Decimal(0) if covered else unit * qty
         total += line_total
         line: dict[str, Any] = {
@@ -148,8 +151,8 @@ async def place_order(
             "line_total_aed": money(line_total),
             "paid_with_coupon": covered,
         }
-        if covered and book is not None:
-            line["coupon_book_id"] = str(book.id)
+        if covered and redemption is not None:
+            line["coupon_book_id"] = redemption.source_id
         lines.append(line)
 
     order = Order(
@@ -176,28 +179,4 @@ async def place_order(
     if not customer.area and req.area:
         customer.area = req.area
     await s.flush()
-    return Placed(
-        order=order,
-        lines=lines,
-        bottles_from_coupon=water_qty if book is not None else 0,
-        coupon_bottles_remaining=book.bottles_remaining if book is not None else None,
-    )
-
-
-async def restore_coupon_bottles(s: AsyncSession, order: Order) -> int:
-    """On cancellation: put coupon-paid bottles back into the book they came from."""
-    restored = 0
-    per_book: dict[uuid.UUID, int] = {}
-    for line in order.items or []:
-        if isinstance(line, dict) and line.get("paid_with_coupon") and line.get("coupon_book_id"):
-            try:
-                book_id = uuid.UUID(str(line["coupon_book_id"]))
-            except ValueError:
-                continue
-            per_book[book_id] = per_book.get(book_id, 0) + int(line.get("qty") or 0)
-    for book_id, qty in per_book.items():
-        book = await s.get(CouponBook, book_id, with_for_update=True)
-        if book is not None and book.customer_id == order.customer_id:
-            book.bottles_remaining = (book.bottles_remaining or 0) + qty
-            restored += qty
-    return restored
+    return Placed(order=order, lines=lines, redemption=redemption)

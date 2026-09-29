@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.deps import Ctx, Viewer, revoke_access, unauthorized
 from api.auth.tokens import (
@@ -34,9 +35,10 @@ from api.auth.tokens import (
 from api.config import Settings, get_settings
 from api.core.logging import get_logger
 from api.core.passwords import hash_password, verify_password
-from api.db.models import AuthRefreshToken, Tenant, TenantUser
+from api.db.models import AuthRefreshToken, Tenant, TenantSettings, TenantUser
 from api.db.session import Database
 from api.deps import get_database, get_redis
+from api.modules import registry
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 log = get_logger(__name__)
@@ -76,6 +78,8 @@ class TenantOut(BaseModel):
     slug: str
     timezone: str
     meta_charges_borne_by_us_until: str | None
+    modules: list[str]  # enabled module keys: the dashboard builds its menu from these
+    contact_label: str  # what this business calls its contacts
 
 
 class SessionOut(BaseModel):
@@ -138,14 +142,21 @@ def _user_out(u: TenantUser) -> UserOut:
     return UserOut(id=u.id, email=u.email, name=u.name, role=cast(Role, u.role))
 
 
-def _tenant_out(t: Tenant) -> TenantOut:
+DEFAULT_CONTACT_LABEL = "Customers"
+
+
+async def _tenant_out(s: AsyncSession, t: Tenant) -> TenantOut:
     borne = t.meta_charges_borne_by_us_until
+    enabled = await registry.enabled_for(s, t.id)
+    ts = await s.get(TenantSettings, t.id)
     return TenantOut(
         id=t.id,
         name=t.name,
         slug=t.slug,
         timezone=t.timezone,
         meta_charges_borne_by_us_until=borne.isoformat() if borne else None,
+        modules=list(enabled.keys),
+        contact_label=(ts.contact_label if ts and ts.contact_label else DEFAULT_CONTACT_LABEL),
     )
 
 
@@ -164,7 +175,8 @@ def _refresh_row(
     return row, raw
 
 
-def _session_out(
+async def _session_out(
+    s: AsyncSession,
     settings: Settings,
     response: Response,
     user: TenantUser,
@@ -177,7 +189,10 @@ def _session_out(
     )
     _set_cookie(response, raw, settings)
     return SessionOut(
-        access_token=access, expires_at=exp, user=_user_out(user), tenant=_tenant_out(tenant)
+        access_token=access,
+        expires_at=exp,
+        user=_user_out(user),
+        tenant=await _tenant_out(s, tenant),
     )
 
 
@@ -188,7 +203,7 @@ async def _new_session(
     row, raw = _refresh_row(settings, user, now)
     async with db.platform_session() as s:
         s.add(row)
-    return _session_out(settings, response, user, tenant, raw, now)
+        return await _session_out(s, settings, response, user, tenant, raw, now)
 
 
 async def _bump_failures(redis: Redis, key: str, window_s: int) -> None:
@@ -320,7 +335,7 @@ async def refresh(
                 if state == "live":
                     tok.revoked_at = now
                     tok.replaced_by = row.id
-                out = _session_out(settings, response, user, tenant, new_raw, now)
+                out = await _session_out(s, settings, response, user, tenant, new_raw, now)
     if out is None:
         _clear_cookie(response)
         raise unauthorized("session ended")
@@ -383,7 +398,8 @@ async def _load_self(ctx: Ctx) -> tuple[TenantUser, Tenant]:
 @router.get("/me", response_model=MeOut)
 async def me(ctx: Viewer) -> MeOut:
     user, tenant = await _load_self(ctx)
-    return MeOut(user=_user_out(user), tenant=_tenant_out(tenant))
+    async with ctx.platform() as s:
+        return MeOut(user=_user_out(user), tenant=await _tenant_out(s, tenant))
 
 
 @router.post("/password", response_model=SessionOut)

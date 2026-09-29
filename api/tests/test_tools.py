@@ -13,10 +13,11 @@ from typing import Any
 import pytest
 from sqlalchemy import func, select
 
-from api.agents.tools import TOOLS, execute
+from api.agents.tools import execute, toolset
 from api.agents.tools.base import ToolContext
 from api.db.models import AuditLog, Conversation, CouponBook, Customer, Order, Product
 from api.db.session import Database
+from api.modules.registry import enabled_of
 from api.tests.conftest import ChannelPair
 
 
@@ -64,6 +65,7 @@ async def tool_ctx(db: Database, shop: dict[str, uuid.UUID]) -> AsyncIterator[To
             inbound_wamid="wamid.T",
             now=now,
             today=now.date(),
+            enabled=WATER,
         )
 
 
@@ -77,6 +79,10 @@ async def run(
 async def orders(db: Database, shop: dict[str, uuid.UUID]) -> list[Order]:
     async with db.tenant_session(shop["tenant"]) as s:
         return list((await s.scalars(select(Order))).all())
+
+
+WATER = enabled_of(["water_delivery"])
+TOOLS = toolset(WATER)
 
 
 def test_ten_tools_registered_with_spec_schemas() -> None:
@@ -99,6 +105,8 @@ def test_ten_tools_registered_with_spec_schemas() -> None:
         == 200
     )
     assert TOOLS["create_order"].parameters["required"] == ["items", "area"]
+    # use_coupon_book is added by the coupons module, not declared by orders
+    assert "use_coupon_book" in TOOLS["create_order"].parameters["properties"]
 
 
 async def test_total_is_recomputed_from_this_tenants_prices(

@@ -42,7 +42,8 @@ from api.agents.context import (
     render_support_prompt,
     retrieve_knowledge,
 )
-from api.agents.support import PROMPT_VERSION, SupportAgent, SupportTurn
+from api.agents.prompts import compose
+from api.agents.support import SupportAgent, SupportTurn
 from api.agents.tools.base import Escalation, EscalationReason, ToolContext, escalate
 from api.agents.tools.record_opt_out import mark_opted_out
 from api.config import Settings
@@ -272,6 +273,7 @@ class TurnRunner:
                 provider=persona.llm_provider,
                 model=persona.classify_model,
                 text=customer_text,
+                modules=persona.enabled.keys,
             )
         except LLMUnavailableError:
             return await self._llm_down(
@@ -348,7 +350,7 @@ class TurnRunner:
         async with self._db.tenant_session(tenant_id) as s:
             customer = await s.get(Customer, customer_id)
             assert customer is not None
-            customer_block = await render_customer_block(s, customer, today)
+            customer_block = await render_customer_block(s, customer, today, persona.enabled)
             history, previous_out = await load_history(s, conversation_id)
             knowledge = await retrieve_knowledge(s, self._embedder, customer_text)
         system_prompt, chunks_used, prompt_tokens_est = render_support_prompt(
@@ -401,7 +403,7 @@ class TurnRunner:
             conversation_id,
             outcome.text,
             meter,
-            PROMPT_VERSION if outcome.kind == "model" else prompts.CANNED,
+            compose.version(persona.enabled.keys) if outcome.kind == "model" else prompts.CANNED,
         )
         await self._handled(tenant_id, pending_ids)
         for esc in outcome.escalations:

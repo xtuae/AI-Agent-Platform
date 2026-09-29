@@ -265,7 +265,7 @@ async def _password(h: DashHarness, w: World) -> None:
 async def _today(h: DashHarness, w: World) -> None:
     body = await get_clean(h, w, "/api/v1/today")
     # B has identical data; if B leaked in, every count would double
-    assert body["orders"]["deliveries_due"] == 1
+    assert body["modules"]["orders"]["deliveries_due"] == 1
     assert body["awaiting_human"] == 1
     assert body["live_conversations"] == 1
     assert body["spend"]["meta_cost_aed"] == "0.50"
@@ -286,51 +286,51 @@ async def _stream(h: DashHarness, w: World) -> None:
 # ---------------------------------------------------------------- orders
 
 
-@case("GET", "/api/v1/orders")
+@case("GET", "/api/v1/m/orders")
 async def _orders(h: DashHarness, w: World) -> None:
-    body = await get_clean(h, w, "/api/v1/orders")
+    body = await get_clean(h, w, "/api/v1/m/orders")
     assert [o["id"] for o in body["items"]] == [str(w.a.order)]
     # searching for B's markers finds nothing
     for q in (B_MARK, f"{B_MARK}-1", "971500000002"):
-        assert (await get_clean(h, w, "/api/v1/orders", q=q))["total"] == 0
-    assert (await get_clean(h, w, "/api/v1/orders", area=f"{B_MARK} Area"))["total"] == 0
+        assert (await get_clean(h, w, "/api/v1/m/orders", q=q))["total"] == 0
+    assert (await get_clean(h, w, "/api/v1/m/orders", area=f"{B_MARK} Area"))["total"] == 0
 
 
-@case("GET", "/api/v1/orders/areas")
+@case("GET", "/api/v1/m/orders/areas")
 async def _areas(h: DashHarness, w: World) -> None:
-    assert await get_clean(h, w, "/api/v1/orders/areas") == ["ASIDE Area"]
+    assert await get_clean(h, w, "/api/v1/m/orders/areas") == ["ASIDE Area"]
 
 
-@case("GET", "/api/v1/orders/delivery-list")
+@case("GET", "/api/v1/m/orders/delivery-list")
 async def _delivery(h: DashHarness, w: World) -> None:
-    body = await get_clean(h, w, "/api/v1/orders/delivery-list")
+    body = await get_clean(h, w, "/api/v1/m/orders/delivery-list")
     assert [g["area"] for g in body["groups"]] == ["ASIDE Area"]
-    assert (await get_clean(h, w, "/api/v1/orders/delivery-list", area=f"{B_MARK} Area"))[
+    assert (await get_clean(h, w, "/api/v1/m/orders/delivery-list", area=f"{B_MARK} Area"))[
         "groups"
     ] == []
 
 
-@case("GET", "/api/v1/orders/{order_id}")
+@case("GET", "/api/v1/m/orders/{order_id}")
 async def _order(h: DashHarness, w: World) -> None:
-    await get_clean(h, w, f"/api/v1/orders/{w.a.order}")
-    r = await h.client.get(f"/api/v1/orders/{w.b.order}", headers=w.headers)
+    await get_clean(h, w, f"/api/v1/m/orders/{w.a.order}")
+    r = await h.client.get(f"/api/v1/m/orders/{w.b.order}", headers=w.headers)
     assert r.status_code == 404
     assert_clean(r.json(), w)
 
 
-@case("POST", "/api/v1/orders")
+@case("POST", "/api/v1/m/orders")
 async def _create_order(h: DashHarness, w: World) -> None:
     # B's customer, and A's customer with B's SKU: both refused, nothing created anywhere
     await write_refused(
         h,
         w,
         "POST",
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         {"customer_id": str(w.b.customer), "items": [{"sku": w.a.sku, "qty": 1}]},
     )
     before = await b_snapshot(h, w)
     r = await h.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=w.headers,
         json={"customer_id": str(w.a.customer), "items": [{"sku": w.b.sku, "qty": 1}]},
     )
@@ -339,7 +339,7 @@ async def _create_order(h: DashHarness, w: World) -> None:
     assert await b_snapshot(h, w) == before
     # and a body that names a tenant is rejected outright
     r = await h.client.post(
-        "/api/v1/orders",
+        "/api/v1/m/orders",
         headers=w.headers,
         json={
             "customer_id": str(w.a.customer),
@@ -350,10 +350,10 @@ async def _create_order(h: DashHarness, w: World) -> None:
     assert r.status_code == 422
 
 
-@case("PATCH", "/api/v1/orders/{order_id}")
+@case("PATCH", "/api/v1/m/orders/{order_id}")
 async def _patch_order(h: DashHarness, w: World) -> None:
-    await write_refused(h, w, "PATCH", f"/api/v1/orders/{w.b.order}", {"status": "cancelled"})
-    await write_refused(h, w, "PATCH", f"/api/v1/orders/{w.b.order}", {"notes": "x"})
+    await write_refused(h, w, "PATCH", f"/api/v1/m/orders/{w.b.order}", {"status": "cancelled"})
+    await write_refused(h, w, "PATCH", f"/api/v1/m/orders/{w.b.order}", {"notes": "x"})
 
 
 # ---------------------------------------------------------------- conversations
@@ -401,44 +401,44 @@ async def _reply(h: DashHarness, w: World) -> None:
 # ---------------------------------------------------------------- customers
 
 
-@case("GET", "/api/v1/customers")
+@case("GET", "/api/v1/contacts")
 async def _customers(h: DashHarness, w: World) -> None:
-    body = await get_clean(h, w, "/api/v1/customers")
+    body = await get_clean(h, w, "/api/v1/contacts")
     assert [c["id"] for c in body["items"]] == [str(w.a.customer)]
     for q in (B_MARK, "971500000002", "500000002"):
-        assert (await get_clean(h, w, "/api/v1/customers", q=q))["total"] == 0
+        assert (await get_clean(h, w, "/api/v1/contacts", q=q))["total"] == 0
 
 
-@case("GET", "/api/v1/customers/{customer_id}")
+@case("GET", "/api/v1/contacts/{customer_id}")
 async def _customer(h: DashHarness, w: World) -> None:
-    body = await get_clean(h, w, f"/api/v1/customers/{w.a.customer}")
-    assert body["coupon_bottles_remaining"] == 9
-    r = await h.client.get(f"/api/v1/customers/{w.b.customer}", headers=w.headers)
+    body = await get_clean(h, w, f"/api/v1/contacts/{w.a.customer}")
+    assert body["modules"]["coupons"]["bottles_remaining"] == 9
+    r = await h.client.get(f"/api/v1/contacts/{w.b.customer}", headers=w.headers)
     assert r.status_code == 404
 
 
-@case("POST", "/api/v1/customers")
+@case("POST", "/api/v1/contacts")
 async def _create_customer(h: DashHarness, w: World) -> None:
     # B already has 971500000002; in A that number is new, so A gets its own row and B is untouched
     before = await b_snapshot(h, w)
     r = await h.client.post(
-        "/api/v1/customers", headers=w.headers, json={"wa_id": "971500000002", "name": "Same phone"}
+        "/api/v1/contacts", headers=w.headers, json={"wa_id": "971500000002", "name": "Same phone"}
     )
     assert r.status_code == 201, r.text
     assert_clean(r.json(), w)
     assert await b_snapshot(h, w) == before
     r = await h.client.post(
-        "/api/v1/customers",
+        "/api/v1/contacts",
         headers=w.headers,
         json={"wa_id": "971500000777", "tenant_id": str(w.b.tenant)},
     )
     assert r.status_code == 422
 
 
-@case("PATCH", "/api/v1/customers/{customer_id}")
+@case("PATCH", "/api/v1/contacts/{customer_id}")
 async def _patch_customer(h: DashHarness, w: World) -> None:
-    await write_refused(h, w, "PATCH", f"/api/v1/customers/{w.b.customer}", {"opt_out": True})
-    await write_refused(h, w, "PATCH", f"/api/v1/customers/{w.b.customer}", {"name": "x"})
+    await write_refused(h, w, "PATCH", f"/api/v1/contacts/{w.b.customer}", {"opt_out": True})
+    await write_refused(h, w, "PATCH", f"/api/v1/contacts/{w.b.customer}", {"name": "x"})
 
 
 # ---------------------------------------------------------------- settings, products, team
@@ -460,17 +460,17 @@ async def _patch_settings(h: DashHarness, w: World) -> None:
     assert await b_snapshot(h, w) == before
 
 
-@case("GET", "/api/v1/products")
+@case("GET", "/api/v1/m/catalog/products")
 async def _products(h: DashHarness, w: World) -> None:
-    body = await get_clean(h, w, "/api/v1/products")
+    body = await get_clean(h, w, "/api/v1/m/catalog/products")
     assert [p["id"] for p in body] == [str(w.a.product)]
 
 
-@case("POST", "/api/v1/products")
+@case("POST", "/api/v1/m/catalog/products")
 async def _create_product(h: DashHarness, w: World) -> None:
     before = await b_snapshot(h, w)
     r = await h.client.post(
-        "/api/v1/products",
+        "/api/v1/m/catalog/products",
         headers=w.headers,
         json={"sku": w.b.sku, "name_en": "Same SKU as B", "category": "snack", "price_aed": "1"},
     )
@@ -478,9 +478,11 @@ async def _create_product(h: DashHarness, w: World) -> None:
     assert await b_snapshot(h, w) == before
 
 
-@case("PATCH", "/api/v1/products/{product_id}")
+@case("PATCH", "/api/v1/m/catalog/products/{product_id}")
 async def _patch_product(h: DashHarness, w: World) -> None:
-    await write_refused(h, w, "PATCH", f"/api/v1/products/{w.b.product}", {"price_aed": "0.01"})
+    await write_refused(
+        h, w, "PATCH", f"/api/v1/m/catalog/products/{w.b.product}", {"price_aed": "0.01"}
+    )
 
 
 @case("GET", "/api/v1/team")

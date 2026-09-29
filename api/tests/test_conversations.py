@@ -31,7 +31,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 
 from api.agents.text import has_arabic, numbers_in, script_of
-from api.agents.tools import TOOLS, get_products
+from api.agents.tools import toolset
 from api.agents.turn import TurnRunner
 from api.config import Settings
 from api.core.crypto import encrypt_secret
@@ -54,6 +54,8 @@ from api.llm.router import LLMResult, LLMRouter, LLMUnavailableError, ToolCall
 from api.llm.transcribe import Transcript
 from api.meta.client import MetaClient
 from api.metering import usage_day
+from api.modules.catalog import tools as get_products
+from api.modules.registry import enabled_of
 from api.tests.conftest import RecordingEnqueuer, make_tenant, meta_id, wamid
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.payloads import WebhookPayload
@@ -822,7 +824,8 @@ async def test_20_tool_failure_holds_and_escalates_never_invents(
 
     if LIVE:
         pytest.skip("scripted-only: forces the tool call")
-    monkeypatch.setitem(TOOLS, "get_products", replace(get_products.TOOL, run=db_timeout))
+    tools = toolset(enabled_of(["water_delivery"]))  # the cached set the agent uses
+    monkeypatch.setitem(tools, "get_products", replace(get_products.TOOL, run=db_timeout))
     llm = shop.brain(
         "price",
         "en",
@@ -869,7 +872,7 @@ async def test_every_send_is_metered_with_llm_usage(shop: Shop) -> None:
     out = (await shop.outbound(KNOWN))[-1]
     assert out.pricing_category == "service"
     assert out.cost_aed is not None
-    assert out.prompt_version == "support_v1+classifier_v1"
+    assert out.prompt_version == "support_core_v1[catalog,orders,coupons]+classifier_core_v1"
     assert (out.prompt_tokens, out.completion_tokens) == (
         900 * 3,
         40 * 3,

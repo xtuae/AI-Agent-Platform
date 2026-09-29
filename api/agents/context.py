@@ -21,21 +21,22 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.agents import prompts
+from api.agents.prompts import compose
 from api.agents.text import clean_inline, estimate_tokens, truncate_to_tokens
 from api.core.logging import get_logger
 from api.db.models import (
     Conversation,
-    CouponBook,
     Customer,
     KnowledgeChunk,
     Message,
-    Order,
     Tenant,
     TenantSettings,
 )
 from api.db.session import Database
 from api.llm.embeddings import Embedder
+from api.modules import registry
+from api.modules.base import Line
+from api.modules.registry import Enabled
 
 log = get_logger(__name__)
 
@@ -59,6 +60,7 @@ class Persona:
     classify_model: str
     escalation_phone: str | None
     feature_flags: dict[str, Any] = field(default_factory=dict)
+    enabled: Enabled = field(default_factory=Enabled)  # the tenant's modules
 
     @property
     def disclosure_markers(self) -> tuple[str, ...]:
@@ -87,6 +89,7 @@ async def load_persona(db: Database, tenant_id: uuid.UUID) -> Persona:
     async with db.platform_session() as s:
         tenant = await s.get(Tenant, tenant_id)
         settings = await s.get(TenantSettings, tenant_id)
+        enabled = await registry.enabled_for(s, tenant_id)
     if tenant is None:
         raise LookupError("tenant not found")
     persona: dict[str, Any] = (settings.agent_persona if settings else None) or {}
@@ -111,68 +114,48 @@ async def load_persona(db: Database, tenant_id: uuid.UUID) -> Persona:
         classify_model=settings.llm_model_classify if settings else "gemini-2.5-flash-lite",
         escalation_phone=settings.escalation_phone if settings else None,
         feature_flags=(settings.feature_flags if settings else None) or {},
+        enabled=enabled,
     )
 
 
-async def render_customer_block(s: AsyncSession, customer: Customer, today: date) -> str:
-    """02 §2.1 — the known/unknown customer block. Every figure here comes from the DB."""
-    last_order = await s.scalar(
-        select(Order)
-        .where(Order.customer_id == customer.id, Order.status != "cancelled")
-        .order_by(Order.created_at.desc())
-        .limit(1)
-    )
+async def render_customer_block(
+    s: AsyncSession, customer: Customer, today: date, enabled: Enabled
+) -> str:
+    """02 §2.1 — the known/unknown customer block. Every figure here comes from the DB: the core
+    profile and opt-in lines, plus whatever each enabled module adds (orders: last order and
+    count; coupons: the live book)."""
+    known = bool(customer.area)
+    module_lines: list[tuple[int, int, str]] = []
+    for i, module in enumerate(enabled.modules):
+        if module.customer_block is None:
+            continue
+        contribution = await module.customer_block(s, customer, today)
+        known = known or contribution.known
+        module_lines.extend((line.weight, i, line.text) for line in contribution.lines)
     # A WhatsApp profile name alone does not make someone known: they still get the spec's
-    # "new contact — ask their area before quoting delivery" block.
-    known = bool(customer.area or last_order is not None)
+    # "new contact" block.
     if not known:
-        return (
-            "This is a new contact. You do not know their name, area or history yet.\n"
-            "Ask their area before quoting delivery, and their name once, politely."
-        )
-    book = await s.scalar(
-        select(CouponBook)
-        .where(
-            CouponBook.customer_id == customer.id,
-            CouponBook.bottles_remaining > 0,
-            (CouponBook.expires_at.is_(None)) | (CouponBook.expires_at >= today),
-        )
-        .order_by(CouponBook.expires_at.asc().nulls_last())
-        .limit(1)
-    )
+        return compose.new_contact_text(enabled.modules)
     area = ", ".join(x for x in (clean_inline(customer.area), clean_inline(customer.emirate)) if x)
     lines = [
-        f"Name: {clean_inline(customer.name) or 'unknown'} · Area: {area or 'unknown'} · "
-        f"Language: {clean_inline(customer.language, 8) or 'unknown'}"
+        Line(
+            0,
+            f"Name: {clean_inline(customer.name) or 'unknown'} · Area: {area or 'unknown'} · "
+            f"Language: {clean_inline(customer.language, 8) or 'unknown'}",
+        )
     ]
-    if book is not None:
-        free = book.bottles_free or 0
-        paid = (book.bottles_total or 0) - free
-        price = f"AED {book.price_aed:.0f} package " if book.price_aed is not None else ""
-        expiry = f", expires {book.expires_at.isoformat()}" if book.expires_at else ""
-        lines.append(
-            f"Coupon book: {price}({paid}+{free}) — "
-            f"{book.bottles_remaining} bottles remaining{expiry}"
-        )
-    else:
-        lines.append("Coupon book: none active")
-    if last_order is not None:
-        qty = sum(int(i.get("qty") or 0) for i in (last_order.items or []))
-        all_water = all(i.get("category") in (None, "water") for i in (last_order.items or []))
-        lines.append(
-            f"Last order: {last_order.created_at.date().isoformat()}, "
-            f"{qty} {'bottles' if all_water else 'items'}"
-        )
-    lines.append(f"Orders to date: {customer.lifetime_orders}")
     if customer.opt_in_status == "opted_in":
         ev = customer.opt_in_evidence or {}
         when = customer.opt_in_at.date().isoformat() if customer.opt_in_at else "date unknown"
         src = clean_inline(str(ev.get("source", "")), 40).replace("_", " ")
-        lines.append(f"Opted in to offers: yes ({when}{', ' + src if src else ''})")
+        lines.append(Line(1000, f"Opted in to offers: yes ({when}{', ' + src if src else ''})"))
     else:
         status = "no (opted out)" if customer.opt_in_status == "opted_out" else "not yet"
-        lines.append(f"Opted in to offers: {status}")
-    return "\n".join(lines)
+        lines.append(Line(1000, f"Opted in to offers: {status}"))
+    ordered = sorted(
+        [(ln.weight, -1, ln.text) for ln in lines] + module_lines, key=lambda t: (t[0], t[1])
+    )
+    return "\n".join(text for _, _, text in ordered)
 
 
 async def load_history(
@@ -236,8 +219,8 @@ def render_support_prompt(
     until the prompt fits the cap. Raises if even the chunk-free prompt exceeds it."""
 
     def render(chunks: list[str]) -> str:
-        return prompts.render(
-            prompts.SUPPORT,
+        return compose.render_support(
+            persona.enabled.keys,
             agent_name=persona.agent_name,
             business_name=persona.business_name,
             business_description=persona.business_description,
