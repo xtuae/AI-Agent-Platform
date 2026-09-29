@@ -1,0 +1,29 @@
+# Local development: plain HTTP on http://localhost:8080, same routing as production.
+{
+	auto_https off
+	order rate_limit before basic_auth
+}
+
+:80 {
+	rate_limit {
+		zone auth_dev {
+			match {
+				path /api/v1/auth/*
+			}
+			key {remote_host}
+			events 30
+			window 1m
+		}
+	}
+
+	@backend path /api/* /health /webhook/*
+	handle @backend {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/dashboard
+		try_files {path} /index.html
+		file_server
+	}
+}

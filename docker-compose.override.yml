@@ -1,0 +1,48 @@
+# Local development. Merged automatically by `docker compose up`.
+# Hot reload for the API, every port bound to 127.0.0.1 only, plain-HTTP Caddy on :8080.
+# Production deploys must use `docker compose -f docker-compose.yml ...` to skip this file.
+
+services:
+  caddy:
+    ports: !override
+      - "127.0.0.1:8080:80"
+    volumes: !override
+      - ./docker/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - ./dashboard/dist:/srv/dashboard:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  api:
+    build:
+      target: dev
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+              "--reload-dir", "api"]
+    environment:
+      APP_ENV: local
+    volumes:
+      - ./api:/app/api
+      - ./alembic.ini:/app/alembic.ini:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    build:
+      target: dev
+    command: ["arq", "api.workers.arq_app.WorkerSettings", "--watch", "api"]
+    volumes:
+      - ./api:/app/api
+
+  scheduler:
+    build:
+      target: dev
+    volumes:
+      - ./api:/app/api
+
+  postgres:
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=100"]
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

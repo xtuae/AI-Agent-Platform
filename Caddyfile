@@ -1,0 +1,73 @@
+# Production edge — 01_architecture.md §3.
+# Assumes Cloudflare DNS in "DNS only" (grey cloud) mode so {remote_host} is the real client IP.
+{
+	email {$ACME_EMAIL}
+	order rate_limit before basic_auth
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+}
+
+# Brute-force protection on login/refresh (§10.1 item 7). {args[0]} names the zone per site.
+(auth_rate_limit) {
+	rate_limit {
+		zone {args[0]} {
+			match {
+				path /api/v1/auth/*
+			}
+			key {remote_host}
+			events {$AUTH_RATE_LIMIT_EVENTS}
+			window {$AUTH_RATE_LIMIT_WINDOW}
+		}
+	}
+}
+
+# API + Meta webhook.
+api.{$BASE_DOMAIN} {
+	import security_headers
+	import auth_rate_limit auth_api
+	request_body {
+		max_size 10MB
+	}
+	# No active health check: /health reports 503 when Postgres is down, and the webhook must
+	# keep answering Meta (Phase 6: buffer to Redis) even then.
+	reverse_proxy api:8000
+}
+
+# Tenant dashboards (aquamena.…) and the platform console (admin.…): one SPA bundle.
+# The tenant is resolved from the JWT, never from this hostname (§8.1).
+*.{$BASE_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	import security_headers
+	header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	import auth_rate_limit auth_dashboard
+
+	# Same-origin API for the dashboard: no CORS surface.
+	# /api/v1/stream is Server-Sent Events: Caddy flushes text/event-stream immediately, and it
+	# must never pass through `encode` (compression would buffer it), so encode is only applied to
+	# the static files below.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		encode zstd gzip
+		root * /srv/dashboard
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

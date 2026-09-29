@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dashboard/node_modules/
+dashboard/dist/*
+!dashboard/dist/.gitkeep
+.DS_Store

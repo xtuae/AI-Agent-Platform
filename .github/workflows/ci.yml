@@ -1,0 +1,98 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-superuser
+          POSTGRES_DB: agents_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d agents_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      APP_ENV: test
+      POSTGRES_DB: agents_test
+      DB_OWNER_USER: agents_owner
+      DB_OWNER_PASSWORD: ci-owner
+      DB_APP_USER: agents_app
+      DB_APP_PASSWORD: ci-app
+      DATABASE_URL: postgresql+asyncpg://agents_app:ci-app@localhost:5432/agents_test
+      MIGRATIONS_DATABASE_URL: postgresql+asyncpg://agents_owner:ci-owner@localhost:5432/agents_test
+      REDIS_URL: redis://localhost:6379/0
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.5.11"
+          enable-cache: true
+
+      - name: Install Python 3.12 + deps
+        run: |
+          uv python install 3.12
+          uv sync --frozen
+
+      - name: Generate a throwaway encryption key for this run
+        run: |
+          key=$(uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          echo "::add-mask::$key"
+          echo "APP_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Create database roles (same script as the postgres container)
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ci-superuser
+          POSTGRES_USER: postgres
+        run: bash docker/postgres/init/01-roles.sh
+
+      - name: ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: mypy --strict
+        run: uv run mypy
+
+      - name: alembic up / down / up
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+      - name: pytest
+        run: uv run pytest --cov=api --cov-report=term-missing
+
+      - name: validate Caddyfile
+        run: |
+          docker build -t hmh-caddy ./docker/caddy
+          docker run --rm -e BASE_DOMAIN=example.com -e ACME_EMAIL=ci@example.com \
+            -e CLOUDFLARE_API_TOKEN=x -e AUTH_RATE_LIMIT_EVENTS=10 -e AUTH_RATE_LIMIT_WINDOW=1m \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" hmh-caddy \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: build api image
+        run: docker build -f api/Dockerfile --target runtime --build-arg GIT_SHA=${GITHUB_SHA::7} .

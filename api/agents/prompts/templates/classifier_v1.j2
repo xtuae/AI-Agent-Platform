@@ -1,0 +1,21 @@
+Classify the customer's latest WhatsApp message into exactly one intent.
+
+INTENTS
+order         Wants to buy, reorder, or add items. Includes "same as last time".
+balance       Asking how many bottles/coupons remain, or about their coupon book.
+delivery      Where is my order, when will it come, change address, change time, reschedule.
+price         Asking prices, offers, coupon packages, or what is available.
+complaint     Unhappy: late, damaged, wrong item, rude driver, billing dispute, refund request.
+optout        Wants to stop receiving messages. "STOP", "unsubscribe", "لا ترسل", "don't message me".
+support       A question about the business that is none of the above.
+smalltalk     Greeting, thanks, emoji only, or no actionable content.
+unknown       Cannot tell.
+
+RULES
+- optout wins over everything. If the message contains any stop/unsubscribe request, return optout.
+- complaint wins over order. An angry customer who also wants to reorder is a complaint.
+- If two other intents fit, choose the one the customer would most want answered first.
+
+Return only: {"intent":"<one intent>","language":"en"|"ar"|"ar-latn","confidence":0.0-1.0}
+
+MESSAGE: {{message_text}}

@@ -1,0 +1,543 @@
+"""Phase 3 acceptance: a tenant-A token cannot read or change any tenant-B record — EVERY endpoint.
+
+`test_every_route_has_a_cross_tenant_case` compares the app's real route table with CASES, so a
+route added later without a case here fails the build.
+
+Each case runs with tenant A's admin token (the strongest role) against a world where tenant B has
+one of everything, all marked with B_MARK. Reads must not leak B ids or B_MARK; reads of B ids
+must 404; writes aimed at B ids must 404 and leave B's rows as they were.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import Any
+
+import pytest
+from sqlalchemy import select
+
+from api.core.crypto import encrypt_secret
+from api.db.models import (
+    AuditLog,
+    Conversation,
+    CouponBook,
+    Customer,
+    Message,
+    Order,
+    Product,
+    TenantChannel,
+    TenantSettings,
+    TenantUser,
+    UsageDaily,
+)
+from api.tests.conftest import DashHarness, TenantPair, make_channel, wamid
+
+B_MARK = "BSECRET"
+
+
+@dataclass
+class Side:
+    tenant: uuid.UUID
+    customer: uuid.UUID
+    product: uuid.UUID
+    sku: str
+    book: uuid.UUID
+    order: uuid.UUID
+    conversation: uuid.UUID
+    user: uuid.UUID
+    ids: set[str]
+
+
+@dataclass
+class World:
+    a: Side
+    b: Side
+    headers: dict[str, str]  # tenant A, admin
+
+
+async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: str) -> Side:
+    today = datetime.now(UTC).date()
+    channel: TenantChannel = await make_channel(h.db, tenant)
+    async with h.db.platform_session() as s:
+        ch = await s.get(TenantChannel, channel.id)
+        assert ch is not None
+        ch.access_token_encrypted = encrypt_secret(f"token-{mark}")
+        s.add(
+            TenantSettings(
+                tenant_id=tenant,
+                escalation_phone="971500000999",
+                business_hours={"mon": "08:00-20:00"},
+                monthly_message_cap_aed=Decimal("100"),
+            )
+        )
+    user = await h.user(
+        tenant, "agent", email=f"{mark.lower()}-{uuid.uuid4().hex[:6]}@example.test"
+    )
+    sku = f"{mark}-SKU-{uuid.uuid4().hex[:4]}"
+    now = datetime.now(UTC)
+    async with h.db.tenant_session(tenant) as s:
+        c = await s.get(Customer, customer)
+        assert c is not None
+        c.name, c.area, c.address_note = f"{mark} Customer", f"{mark} Area", f"{mark} villa"
+        p = Product(sku=sku, name_en=f"{mark} Water", category="water", price_aed=Decimal("7"))
+        s.add(p)
+        book = CouponBook(
+            customer_id=customer, sku=sku, bottles_total=10, bottles_free=1, bottles_remaining=9
+        )
+        s.add(book)
+        order = Order(
+            customer_id=customer,
+            order_no=f"{mark}-1",
+            status="confirmed",
+            items=[{"sku": sku, "name": f"{mark} Water", "qty": 2, "unit_price_aed": "7.00"}],
+            total_aed=Decimal("14.00"),
+            source="agent",
+            area=f"{mark} Area",
+            delivery_date=today,
+            notes=f"{mark} note",
+        )
+        s.add(order)
+        conv = Conversation(
+            customer_id=customer,
+            channel_id=channel.id,
+            state="awaiting_human",
+            last_inbound_at=now,
+            service_window_expires_at=now + timedelta(hours=23),
+            summary=f"{mark} summary",
+        )
+        s.add(conv)
+        await s.flush()
+        s.add_all(
+            [
+                Message(
+                    conversation_id=conv.id,
+                    wamid=wamid(),
+                    direction="in",
+                    msg_type="text",
+                    body=f"{mark} inbound body",
+                    status="received",
+                ),
+                Message(
+                    conversation_id=conv.id,
+                    wamid=wamid(),
+                    direction="out",
+                    msg_type="text",
+                    body=f"{mark} outbound body",
+                    status="sent",
+                ),
+                AuditLog(
+                    actor="agent",
+                    action="escalate",
+                    entity="conversation",
+                    entity_id=conv.id,
+                    after={"reason": "complaint", "summary": f"{mark} escalation"},
+                ),
+                AuditLog(actor="agent", action="create_order", entity="order", entity_id=order.id),
+                UsageDaily(day=now.date(), msgs_out=3, meta_cost_aed=Decimal("0.5")),
+            ]
+        )
+        await s.flush()
+        ids = {str(x) for x in (customer, p.id, book.id, order.id, conv.id, user.id, channel.id)}
+        return Side(tenant, customer, p.id, sku, book.id, order.id, conv.id, user.id, ids)
+
+
+@pytest.fixture
+async def world(dash: DashHarness, tenants: TenantPair) -> World:
+    a = await _seed(dash, tenants.a, tenants.customer_a, "ASIDE")
+    b = await _seed(dash, tenants.b, tenants.customer_b, B_MARK)
+    return World(a=a, b=b, headers=await dash.login(tenants.a, "admin"))
+
+
+def assert_clean(payload: Any, w: World) -> None:
+    text = json.dumps(payload)
+    assert B_MARK not in text, "tenant B data leaked"
+    leaked = [i for i in w.b.ids | {str(w.b.tenant)} if i in text]
+    assert not leaked, f"tenant B ids leaked: {leaked}"
+
+
+async def b_snapshot(h: DashHarness, w: World) -> str:
+    """Everything of tenant B's that an endpoint could change."""
+    async with h.db.tenant_session(w.b.tenant) as s:
+        rows: list[Any] = []
+        for model in (Customer, Product, CouponBook, Order, Conversation, Message):
+            for obj in (await s.scalars(select(model))).all():
+                rows.append({k: str(v) for k, v in vars(obj).items() if not k.startswith("_")})
+    async with h.db.platform_session() as s:
+        for obj in (
+            await s.scalars(select(TenantUser).where(TenantUser.tenant_id == w.b.tenant))
+        ).all():
+            rows.append({k: str(v) for k, v in vars(obj).items() if not k.startswith("_")})
+        st = await s.get(TenantSettings, w.b.tenant)
+        rows.append({k: str(v) for k, v in vars(st).items() if not k.startswith("_")})
+    return json.dumps(sorted(rows, key=json.dumps))
+
+
+Case = Callable[[DashHarness, World], Awaitable[None]]
+CASES: dict[tuple[str, str], Case] = {}
+
+
+def case(method: str, path: str) -> Callable[[Case], Case]:
+    def register(fn: Case) -> Case:
+        CASES[(method, path)] = fn
+        return fn
+
+    return register
+
+
+async def get_clean(h: DashHarness, w: World, url: str, **params: Any) -> Any:
+    r = await h.client.get(url, headers=w.headers, params=params)
+    assert r.status_code == 200, r.text
+    assert_clean(r.json(), w)
+    return r.json()
+
+
+async def write_refused(
+    h: DashHarness, w: World, method: str, url: str, body: dict[str, Any] | None = None
+) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.request(method, url, headers=w.headers, json=body)
+    assert r.status_code == 404, (url, r.status_code, r.text)
+    assert_clean(r.json(), w)
+    assert await b_snapshot(h, w) == before, "tenant B changed"
+
+
+# ---------------------------------------------------------------- auth
+
+
+@case("POST", "/api/v1/auth/login")
+async def _login(h: DashHarness, w: World) -> None:
+    # B's user's email with A's password (and vice versa) never yields a session in B
+    async with h.db.platform_session() as s:
+        b_user = await s.get(TenantUser, w.b.user)
+    assert b_user is not None
+    r = await h.client.post(
+        "/api/v1/auth/login", json={"email": b_user.email, "password": "not the password"}
+    )
+    assert r.status_code == 401
+
+
+@case("POST", "/api/v1/auth/refresh")
+async def _refresh(h: DashHarness, w: World) -> None:
+    # A's cookie refreshes into A, never B (the cookie from `world`'s login is in the jar)
+    r = await h.client.post("/api/v1/auth/refresh", headers={"x-hmh-csrf": "1"})
+    assert r.status_code == 200
+    assert r.json()["tenant"]["id"] == str(w.a.tenant)
+    assert_clean(r.json(), w)
+
+
+@case("POST", "/api/v1/auth/logout")
+async def _logout(h: DashHarness, w: World) -> None:
+    r = await h.client.post("/api/v1/auth/logout", headers={"x-hmh-csrf": "1"})
+    assert r.status_code == 204
+
+
+@case("GET", "/api/v1/auth/me")
+async def _me(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/auth/me")
+    assert body["tenant"]["id"] == str(w.a.tenant)
+
+
+@case("POST", "/api/v1/auth/password")
+async def _password(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/auth/password",
+        headers=w.headers,
+        json={
+            "current_password": "correct horse battery staple",
+            "new_password": "a different long passphrase",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["tenant"]["id"] == str(w.a.tenant)
+    assert await b_snapshot(h, w) == before
+
+
+# ---------------------------------------------------------------- today + stream
+
+
+@case("GET", "/api/v1/today")
+async def _today(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/today")
+    # B has identical data; if B leaked in, every count would double
+    assert body["orders"]["deliveries_due"] == 1
+    assert body["awaiting_human"] == 1
+    assert body["live_conversations"] == 1
+    assert body["spend"]["meta_cost_aed"] == "0.50"
+    assert body["spend"]["messages_out"] == 3
+
+
+@case("GET", "/api/v1/stream")
+async def _stream(h: DashHarness, w: World) -> None:
+    # Full SSE behaviour is in test_events; here: the route is tenant-scoped end to end.
+    from api.tests.test_events import stream_events
+
+    events = await stream_events(h, w.a.tenant, w.b.tenant, w.a.customer, w.b.customer)
+    ids = {e.get("id") for e in events}
+    assert str(w.a.customer) in ids
+    assert str(w.b.customer) not in ids
+
+
+# ---------------------------------------------------------------- orders
+
+
+@case("GET", "/api/v1/orders")
+async def _orders(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/orders")
+    assert [o["id"] for o in body["items"]] == [str(w.a.order)]
+    # searching for B's markers finds nothing
+    for q in (B_MARK, f"{B_MARK}-1", "971500000002"):
+        assert (await get_clean(h, w, "/api/v1/orders", q=q))["total"] == 0
+    assert (await get_clean(h, w, "/api/v1/orders", area=f"{B_MARK} Area"))["total"] == 0
+
+
+@case("GET", "/api/v1/orders/areas")
+async def _areas(h: DashHarness, w: World) -> None:
+    assert await get_clean(h, w, "/api/v1/orders/areas") == ["ASIDE Area"]
+
+
+@case("GET", "/api/v1/orders/delivery-list")
+async def _delivery(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/orders/delivery-list")
+    assert [g["area"] for g in body["groups"]] == ["ASIDE Area"]
+    assert (await get_clean(h, w, "/api/v1/orders/delivery-list", area=f"{B_MARK} Area"))[
+        "groups"
+    ] == []
+
+
+@case("GET", "/api/v1/orders/{order_id}")
+async def _order(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"/api/v1/orders/{w.a.order}")
+    r = await h.client.get(f"/api/v1/orders/{w.b.order}", headers=w.headers)
+    assert r.status_code == 404
+    assert_clean(r.json(), w)
+
+
+@case("POST", "/api/v1/orders")
+async def _create_order(h: DashHarness, w: World) -> None:
+    # B's customer, and A's customer with B's SKU: both refused, nothing created anywhere
+    await write_refused(
+        h,
+        w,
+        "POST",
+        "/api/v1/orders",
+        {"customer_id": str(w.b.customer), "items": [{"sku": w.a.sku, "qty": 1}]},
+    )
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/orders",
+        headers=w.headers,
+        json={"customer_id": str(w.a.customer), "items": [{"sku": w.b.sku, "qty": 1}]},
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "unknown_sku"
+    assert await b_snapshot(h, w) == before
+    # and a body that names a tenant is rejected outright
+    r = await h.client.post(
+        "/api/v1/orders",
+        headers=w.headers,
+        json={
+            "customer_id": str(w.a.customer),
+            "items": [{"sku": w.a.sku, "qty": 1}],
+            "tenant_id": str(w.b.tenant),
+        },
+    )
+    assert r.status_code == 422
+
+
+@case("PATCH", "/api/v1/orders/{order_id}")
+async def _patch_order(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"/api/v1/orders/{w.b.order}", {"status": "cancelled"})
+    await write_refused(h, w, "PATCH", f"/api/v1/orders/{w.b.order}", {"notes": "x"})
+
+
+# ---------------------------------------------------------------- conversations
+
+
+@case("GET", "/api/v1/conversations")
+async def _convs(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/conversations")
+    assert [c["id"] for c in body["items"]] == [str(w.a.conversation)]
+    for params in ({"state": "awaiting_human"}, {"live": "true"}, {"q": B_MARK}):
+        await get_clean(h, w, "/api/v1/conversations", **params)
+
+
+@case("GET", "/api/v1/conversations/{conversation_id}")
+async def _thread(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, f"/api/v1/conversations/{w.a.conversation}")
+    assert len(body["messages"]) == 2
+    r = await h.client.get(f"/api/v1/conversations/{w.b.conversation}", headers=w.headers)
+    assert r.status_code == 404
+
+
+@case("POST", "/api/v1/conversations/{conversation_id}/takeover")
+async def _takeover(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "POST", f"/api/v1/conversations/{w.b.conversation}/takeover")
+
+
+@case("POST", "/api/v1/conversations/{conversation_id}/handback")
+async def _handback(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "POST", f"/api/v1/conversations/{w.b.conversation}/handback")
+
+
+@case("POST", "/api/v1/conversations/{conversation_id}/messages")
+async def _reply(h: DashHarness, w: World) -> None:
+    import httpx
+
+    def never(_r: httpx.Request) -> httpx.Response:
+        raise AssertionError("no WhatsApp send for another tenant's conversation")
+
+    h.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(never))
+    await write_refused(
+        h, w, "POST", f"/api/v1/conversations/{w.b.conversation}/messages", {"text": "hi"}
+    )
+
+
+# ---------------------------------------------------------------- customers
+
+
+@case("GET", "/api/v1/customers")
+async def _customers(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/customers")
+    assert [c["id"] for c in body["items"]] == [str(w.a.customer)]
+    for q in (B_MARK, "971500000002", "500000002"):
+        assert (await get_clean(h, w, "/api/v1/customers", q=q))["total"] == 0
+
+
+@case("GET", "/api/v1/customers/{customer_id}")
+async def _customer(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, f"/api/v1/customers/{w.a.customer}")
+    assert body["coupon_bottles_remaining"] == 9
+    r = await h.client.get(f"/api/v1/customers/{w.b.customer}", headers=w.headers)
+    assert r.status_code == 404
+
+
+@case("POST", "/api/v1/customers")
+async def _create_customer(h: DashHarness, w: World) -> None:
+    # B already has 971500000002; in A that number is new, so A gets its own row and B is untouched
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/customers", headers=w.headers, json={"wa_id": "971500000002", "name": "Same phone"}
+    )
+    assert r.status_code == 201, r.text
+    assert_clean(r.json(), w)
+    assert await b_snapshot(h, w) == before
+    r = await h.client.post(
+        "/api/v1/customers",
+        headers=w.headers,
+        json={"wa_id": "971500000777", "tenant_id": str(w.b.tenant)},
+    )
+    assert r.status_code == 422
+
+
+@case("PATCH", "/api/v1/customers/{customer_id}")
+async def _patch_customer(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"/api/v1/customers/{w.b.customer}", {"opt_out": True})
+    await write_refused(h, w, "PATCH", f"/api/v1/customers/{w.b.customer}", {"name": "x"})
+
+
+# ---------------------------------------------------------------- settings, products, team
+
+
+@case("GET", "/api/v1/settings")
+async def _settings(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, "/api/v1/settings")
+
+
+@case("PATCH", "/api/v1/settings")
+async def _patch_settings(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.patch(
+        "/api/v1/settings", headers=w.headers, json={"escalation_phone": "+971 50 111 2222"}
+    )
+    assert r.status_code == 200
+    assert r.json()["escalation_phone"] == "971501112222"
+    assert await b_snapshot(h, w) == before
+
+
+@case("GET", "/api/v1/products")
+async def _products(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/products")
+    assert [p["id"] for p in body] == [str(w.a.product)]
+
+
+@case("POST", "/api/v1/products")
+async def _create_product(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/products",
+        headers=w.headers,
+        json={"sku": w.b.sku, "name_en": "Same SKU as B", "category": "snack", "price_aed": "1"},
+    )
+    assert r.status_code == 201  # SKUs are per tenant: B's SKU is free in A
+    assert await b_snapshot(h, w) == before
+
+
+@case("PATCH", "/api/v1/products/{product_id}")
+async def _patch_product(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"/api/v1/products/{w.b.product}", {"price_aed": "0.01"})
+
+
+@case("GET", "/api/v1/team")
+async def _team(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/team")
+    assert str(w.a.user) in {m["id"] for m in body}
+
+
+@case("POST", "/api/v1/team")
+async def _add_member(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/team",
+        headers=w.headers,
+        json={
+            "email": f"new-{uuid.uuid4().hex[:6]}@example.test",
+            "role": "viewer",
+            "password": "temporary passphrase",
+        },
+    )
+    assert r.status_code == 201
+    assert await b_snapshot(h, w) == before
+
+
+@case("PATCH", "/api/v1/team/{user_id}")
+async def _patch_member(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"/api/v1/team/{w.b.user}", {"is_active": False})
+    await write_refused(h, w, "PATCH", f"/api/v1/team/{w.b.user}", {"password": "x" * 20})
+
+
+# ---------------------------------------------------------------- the tests
+
+
+def test_every_route_has_a_cross_tenant_case(dash_app_routes: set[tuple[str, str]]) -> None:
+    assert dash_app_routes == set(CASES), (
+        f"missing cases: {sorted(dash_app_routes - set(CASES))}; "
+        f"stale cases: {sorted(set(CASES) - dash_app_routes)}"
+    )
+
+
+@pytest.fixture(scope="module")
+def dash_app_routes() -> set[tuple[str, str]]:
+    from api.main import create_app
+
+    # The OpenAPI document lists every mounted operation, however routers are nested.
+    paths: dict[str, dict[str, Any]] = create_app().openapi()["paths"]
+    return {
+        (method.upper(), path)
+        for path, ops in paths.items()
+        if path.startswith("/api/")
+        for method in ops
+        if method in {"get", "post", "put", "patch", "delete"}
+    }
+
+
+@pytest.mark.parametrize("key", sorted(CASES), ids=lambda k: f"{k[0]} {k[1]}")
+async def test_tenant_a_token_cannot_reach_tenant_b(
+    dash: DashHarness, world: World, key: tuple[str, str]
+) -> None:
+    await CASES[key](dash, world)

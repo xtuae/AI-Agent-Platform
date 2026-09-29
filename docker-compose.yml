@@ -1,0 +1,182 @@
+# Production topology — 01_architecture.md §3.1.
+# Only Caddy publishes ports. Postgres and Redis are reachable on the compose network only
+# (Docker-published ports bypass UFW, so nothing else is published — §10.1 item 6).
+
+name: hmh-agents
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: api/Dockerfile
+    target: runtime
+    args:
+      GIT_SHA: ${GIT_SHA:-unknown}
+  image: ${API_IMAGE:-hmh-agents-api}:${IMAGE_TAG:-latest}
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${DB_APP_USER}:${DB_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    MIGRATIONS_DATABASE_URL: postgresql+asyncpg://${DB_OWNER_USER}:${DB_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  networks: [backend]
+  logging: &logging
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  caddy:
+    build: ./docker/caddy
+    image: hmh-agents-caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BASE_DOMAIN: ${BASE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      AUTH_RATE_LIMIT_EVENTS: ${AUTH_RATE_LIMIT_EVENTS:-10}
+      AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1m}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./dashboard/dist:/srv/dashboard:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+    networks: [backend]
+    logging: *logging
+
+  api:
+    <<: *app
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 1G }
+
+  worker:
+    <<: *app
+    command: ["arq", "api.workers.arq_app.WorkerSettings"]
+    healthcheck:
+      test: ["CMD", "arq", "--check", "api.workers.arq_app.WorkerSettings"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 1536M }
+
+  scheduler:
+    <<: *app
+    command: ["arq", "api.workers.arq_app.SchedulerSettings"]
+    healthcheck:
+      test: ["CMD", "arq", "--check", "api.workers.arq_app.SchedulerSettings"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 384M }
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_OWNER_USER: ${DB_OWNER_USER}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_USER: ${DB_APP_USER}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - max_connections=100
+      - -c
+      - password_encryption=scram-sha-256
+    shm_size: 512m
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.5", memory: 3584M }
+    networks: [backend]
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # noeviction, not the spec's allkeys-lru: Redis holds the ARQ queue and the wamid dedup keys.
+    # Under LRU a memory spike would silently evict queued jobs (lost messages) or dedup keys
+    # (double replies). noeviction makes writes fail loudly instead. AOF so a restart keeps jobs.
+    command:
+      - redis-server
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 640M }
+    networks: [backend]
+    logging: *logging
+
+networks:
+  backend:
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

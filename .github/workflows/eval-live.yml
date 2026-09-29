@@ -1,0 +1,61 @@
+name: eval-live
+
+# 02_agent_prompts §5: the 20 scenarios against a stubbed Meta and a REAL model.
+# Manual (and nightly) rather than per-push: it costs tokens and depends on provider uptime.
+# Re-run it on every prompt or model change; target 20/20 before go-live.
+on:
+  workflow_dispatch:
+    inputs:
+      chat_model:
+        description: "tenant chat model"
+        default: "gemini-3-flash"
+      classify_model:
+        description: "tenant classify model"
+        default: "gemini-2.5-flash-lite"
+  schedule:
+    - cron: "0 1 * * *"
+
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: ci-superuser, POSTGRES_DB: agents_test }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres -d agents_test" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      APP_ENV: test
+      POSTGRES_DB: agents_test
+      DB_OWNER_USER: agents_owner
+      DB_OWNER_PASSWORD: ci-owner
+      DB_APP_USER: agents_app
+      DB_APP_PASSWORD: ci-app
+      DATABASE_URL: postgresql+asyncpg://agents_app:ci-app@localhost:5432/agents_test
+      MIGRATIONS_DATABASE_URL: postgresql+asyncpg://agents_owner:ci-owner@localhost:5432/agents_test
+      REDIS_URL: redis://localhost:6379/0
+      LIVE_LLM: "1"
+      LIVE_CHAT_MODEL: ${{ inputs.chat_model || 'gemini-3-flash' }}
+      LIVE_CLASSIFY_MODEL: ${{ inputs.classify_model || 'gemini-2.5-flash-lite' }}
+      GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with: { version: "0.5.11", enable-cache: true }
+      - run: uv python install 3.12 && uv sync --frozen
+      - name: Throwaway encryption key
+        run: |
+          key=$(uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          echo "::add-mask::$key"; echo "APP_ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+      - name: Roles
+        env: { PGHOST: localhost, PGPASSWORD: ci-superuser, POSTGRES_USER: postgres }
+        run: bash docker/postgres/init/01-roles.sh
+      - run: uv run alembic upgrade head
+      - name: 20 scenarios, real model
+        run: uv run pytest api/tests/test_conversations.py -k "test_0 or test_1 or test_20" -v
