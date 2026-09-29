@@ -20,13 +20,26 @@ from api.db.models.webhooks import WebhookEvent
 # Module-owned tables. Every deployment has every table (one migration chain); a module being
 # switched on for a tenant is a tenant_modules row. Re-exported so core code and Alembic see one
 # complete metadata.
+from api.modules.appointments.models import (
+    Appointment,
+    AppointmentResource,
+    AppointmentType,
+    AvailabilityException,
+    AvailabilityRule,
+)
 from api.modules.catalog.models import Product
 from api.modules.coupons.models import CouponBook, CouponPackage
+from api.modules.listings.models import Listing
 from api.modules.orders.models import Order
 
 __all__ = [
+    "Appointment",
+    "AppointmentResource",
+    "AppointmentType",
     "AuditLog",
     "AuthRefreshToken",
+    "AvailabilityException",
+    "AvailabilityRule",
     "Campaign",
     "CampaignRecipient",
     "Conversation",
@@ -34,6 +47,7 @@ __all__ = [
     "CouponPackage",
     "Customer",
     "KnowledgeChunk",
+    "Listing",
     "Message",
     "MessageTemplate",
     "MetaRate",

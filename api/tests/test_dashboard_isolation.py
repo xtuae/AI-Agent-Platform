@@ -14,7 +14,7 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -23,10 +23,16 @@ from sqlalchemy import select
 
 from api.core.crypto import encrypt_secret
 from api.db.models import (
+    Appointment,
+    AppointmentResource,
+    AppointmentType,
     AuditLog,
+    AvailabilityException,
+    AvailabilityRule,
     Conversation,
     CouponBook,
     Customer,
+    Listing,
     Message,
     Order,
     Product,
@@ -35,6 +41,7 @@ from api.db.models import (
     TenantUser,
     UsageDaily,
 )
+from api.modules import admin as modules_admin
 from api.tests.conftest import DashHarness, TenantPair, make_channel, wamid
 
 B_MARK = "BSECRET"
@@ -50,6 +57,12 @@ class Side:
     order: uuid.UUID
     conversation: uuid.UUID
     user: uuid.UUID
+    listing: uuid.UUID
+    listing_ref: str
+    atype: uuid.UUID
+    resource: uuid.UUID
+    exception: uuid.UUID
+    appointment: uuid.UUID
     ids: set[str]
 
 
@@ -75,6 +88,8 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
                 monthly_message_cap_aed=Decimal("100"),
             )
         )
+    async with h.db.platform_session() as s:
+        await modules_admin.enable(s, tenant, ["listings", "appointments"])
     user = await h.user(
         tenant, "agent", email=f"{mark.lower()}-{uuid.uuid4().hex[:6]}@example.test"
     )
@@ -142,8 +157,61 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
             ]
         )
         await s.flush()
-        ids = {str(x) for x in (customer, p.id, book.id, order.id, conv.id, user.id, channel.id)}
-        return Side(tenant, customer, p.id, sku, book.id, order.id, conv.id, user.id, ids)
+
+        # listings + appointments: one of everything, bookable every day 09:00-17:00
+        listing = Listing(
+            ref=f"{mark}-L1",
+            title=f"{mark} flat",
+            description=f"{mark} description",
+            purpose="rent",
+            property_type="apartment",
+            area=f"{mark} Area",
+            bedrooms=2,
+            price_aed=Decimal("90000"),
+            rent_period="year",
+            status="available",
+        )
+        atype = AppointmentType(name_en=f"{mark} viewing", duration_min=30, location_kind="onsite")
+        resource = AppointmentResource(name=f"{mark} agent")
+        s.add_all([listing, atype, resource])
+        await s.flush()
+        s.add_all(
+            AvailabilityRule(
+                resource_id=resource.id, weekday=d, start_time=time(9), end_time=time(17)
+            )
+            for d in range(7)
+        )
+        exc = AvailabilityException(
+            resource_id=resource.id, day=today + timedelta(days=20), reason=f"{mark} leave"
+        )
+        start = datetime.combine(today + timedelta(days=3), time(10), UTC)
+        appt = Appointment(
+            ref=f"A-{mark}",
+            customer_id=customer,
+            type_id=atype.id,
+            resource_id=resource.id,
+            subject_module="listings",
+            subject_id=listing.id,
+            subject_label=f"{mark} flat",
+            starts_at=start,
+            ends_at=start + timedelta(minutes=30),
+            status="confirmed",
+            notes=f"{mark} appointment note",
+            source="dashboard",
+        )
+        s.add_all([exc, appt])
+        await s.flush()
+        ids = {
+            str(x)
+            for x in (
+                customer, p.id, book.id, order.id, conv.id, user.id, channel.id,
+                listing.id, atype.id, resource.id, exc.id, appt.id,
+            )
+        }  # fmt: skip
+        return Side(
+            tenant, customer, p.id, sku, book.id, order.id, conv.id, user.id,
+            listing.id, listing.ref, atype.id, resource.id, exc.id, appt.id, ids,
+        )  # fmt: skip
 
 
 @pytest.fixture
@@ -164,7 +232,20 @@ async def b_snapshot(h: DashHarness, w: World) -> str:
     """Everything of tenant B's that an endpoint could change."""
     async with h.db.tenant_session(w.b.tenant) as s:
         rows: list[Any] = []
-        for model in (Customer, Product, CouponBook, Order, Conversation, Message):
+        for model in (
+            Customer,
+            Product,
+            CouponBook,
+            Order,
+            Conversation,
+            Message,
+            Listing,
+            AppointmentType,
+            AppointmentResource,
+            AvailabilityRule,
+            AvailabilityException,
+            Appointment,
+        ):
             for obj in (await s.scalars(select(model))).all():
                 rows.append({k: str(v) for k, v in vars(obj).items() if not k.startswith("_")})
     async with h.db.platform_session() as s:
@@ -511,6 +592,248 @@ async def _add_member(h: DashHarness, w: World) -> None:
 async def _patch_member(h: DashHarness, w: World) -> None:
     await write_refused(h, w, "PATCH", f"/api/v1/team/{w.b.user}", {"is_active": False})
     await write_refused(h, w, "PATCH", f"/api/v1/team/{w.b.user}", {"password": "x" * 20})
+
+
+# ---------------------------------------------------------------- listings
+
+
+@case("GET", "/api/v1/m/listings")
+async def _listings(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/m/listings")
+    assert [x["id"] for x in body["items"]] == [str(w.a.listing)]
+    for q in (B_MARK, w.b.listing_ref):
+        assert (await get_clean(h, w, "/api/v1/m/listings", q=q))["total"] == 0
+
+
+@case("GET", "/api/v1/m/listings/{listing_id}")
+async def _listing(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"/api/v1/m/listings/{w.a.listing}")
+    r = await h.client.get(f"/api/v1/m/listings/{w.b.listing}", headers=w.headers)
+    assert r.status_code == 404
+
+
+@case("POST", "/api/v1/m/listings")
+async def _create_listing(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    body = {"ref": w.b.listing_ref, "title": "Same ref as B", "purpose": "sale"}
+    r = await h.client.post(
+        "/api/v1/m/listings", headers=w.headers, json={**body, "property_type": "villa"}
+    )
+    assert r.status_code == 201, r.text  # refs are per tenant
+    assert await b_snapshot(h, w) == before
+    r = await h.client.post(
+        "/api/v1/m/listings",
+        headers=w.headers,
+        json={**body, "ref": "X-2", "property_type": "villa", "tenant_id": str(w.b.tenant)},
+    )
+    assert r.status_code == 422
+
+
+@case("PATCH", "/api/v1/m/listings/{listing_id}")
+async def _patch_listing(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"/api/v1/m/listings/{w.b.listing}", {"status": "sold"})
+
+
+# ---------------------------------------------------------------- appointments
+
+
+@case("GET", "/api/v1/m/appointments")
+async def _appointments(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/m/appointments", to=_in_days(7))
+    assert [x["id"] for x in body["items"]] == [str(w.a.appointment)]
+    for params in (
+        {"resource_id": str(w.b.resource)},
+        {"type_id": str(w.b.atype)},
+        {"customer_id": str(w.b.customer)},
+    ):
+        assert (await get_clean(h, w, "/api/v1/m/appointments", **params))["total"] == 0
+
+
+def _in_days(n: int) -> str:
+    return (datetime.now(UTC).date() + timedelta(days=n)).isoformat()
+
+
+@case("GET", "/api/v1/m/appointments/availability")
+async def _availability(h: DashHarness, w: World) -> None:
+    body = await get_clean(
+        h, w, "/api/v1/m/appointments/availability", type_id=str(w.a.atype), to=_in_days(3)
+    )
+    assert body
+    assert {r for x in body for r in x["resource_ids"]} == {str(w.a.resource)}
+    r = await h.client.get(
+        "/api/v1/m/appointments/availability",
+        headers=w.headers,
+        params={"type_id": str(w.b.atype)},
+    )
+    assert r.status_code == 404
+    # A's type on B's resource: B's resource is invisible, so no slots
+    assert (
+        await get_clean(
+            h,
+            w,
+            "/api/v1/m/appointments/availability",
+            type_id=str(w.a.atype),
+            resource_id=str(w.b.resource),
+        )
+        == []
+    )
+
+
+@case("GET", "/api/v1/m/appointments/{appointment_id}")
+async def _appointment(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"/api/v1/m/appointments/{w.a.appointment}")
+    r = await h.client.get(f"/api/v1/m/appointments/{w.b.appointment}", headers=w.headers)
+    assert r.status_code == 404
+
+
+@case("POST", "/api/v1/m/appointments")
+async def _book(h: DashHarness, w: World) -> None:
+    start = f"{_in_days(5)}T11:00"
+    ok = {"customer_id": str(w.a.customer), "type_id": str(w.a.atype), "starts_at": start}
+    await write_refused(
+        h, w, "POST", "/api/v1/m/appointments", {**ok, "customer_id": str(w.b.customer)}
+    )
+    await write_refused(h, w, "POST", "/api/v1/m/appointments", {**ok, "type_id": str(w.b.atype)})
+    await write_refused(
+        h, w, "POST", "/api/v1/m/appointments", {**ok, "resource_id": str(w.b.resource)}
+    )
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/m/appointments",
+        headers=w.headers,
+        json={**ok, "subject": {"listing_ref": w.b.listing_ref}},
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "listing_not_available"
+    assert await b_snapshot(h, w) == before
+    r = await h.client.post("/api/v1/m/appointments", headers=w.headers, json=ok)
+    assert r.status_code == 201, r.text
+    assert_clean(r.json(), w)
+    assert r.json()["resource"]["id"] == str(w.a.resource)
+
+
+@case("PATCH", "/api/v1/m/appointments/{appointment_id}")
+async def _patch_appointment(h: DashHarness, w: World) -> None:
+    url = f"/api/v1/m/appointments/{w.b.appointment}"
+    await write_refused(h, w, "PATCH", url, {"status": "cancelled"})
+    await write_refused(h, w, "PATCH", url, {"starts_at": f"{_in_days(6)}T12:00"})
+    # A's appointment onto B's resource
+    await write_refused(
+        h,
+        w,
+        "PATCH",
+        f"/api/v1/m/appointments/{w.a.appointment}",
+        {"resource_id": str(w.b.resource)},
+    )
+
+
+@case("GET", "/api/v1/m/appointments/types")
+async def _types(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/m/appointments/types")
+    assert [x["id"] for x in body] == [str(w.a.atype)]
+
+
+@case("POST", "/api/v1/m/appointments/types")
+async def _create_type(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        "/api/v1/m/appointments/types",
+        headers=w.headers,
+        json={"name_en": "Consultation", "duration_min": 45, "location_kind": "office"},
+    )
+    assert r.status_code == 201
+    assert await b_snapshot(h, w) == before
+
+
+@case("PATCH", "/api/v1/m/appointments/types/{type_id}")
+async def _patch_type(h: DashHarness, w: World) -> None:
+    await write_refused(
+        h, w, "PATCH", f"/api/v1/m/appointments/types/{w.b.atype}", {"is_active": False}
+    )
+
+
+@case("GET", "/api/v1/m/appointments/resources")
+async def _resources(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/m/appointments/resources")
+    assert [x["id"] for x in body] == [str(w.a.resource)]
+
+
+@case("POST", "/api/v1/m/appointments/resources")
+async def _create_resource(h: DashHarness, w: World) -> None:
+    # linking a resource to B's team member is refused
+    await write_refused(
+        h,
+        w,
+        "POST",
+        "/api/v1/m/appointments/resources",
+        {"name": "Linked", "tenant_user_id": str(w.b.user)},
+    )
+    r = await h.client.post(
+        "/api/v1/m/appointments/resources",
+        headers=w.headers,
+        json={"name": "Room 2", "tenant_user_id": str(w.a.user)},
+    )
+    assert r.status_code == 201
+
+
+@case("PATCH", "/api/v1/m/appointments/resources/{resource_id}")
+async def _patch_resource(h: DashHarness, w: World) -> None:
+    await write_refused(
+        h, w, "PATCH", f"/api/v1/m/appointments/resources/{w.b.resource}", {"is_active": False}
+    )
+    await write_refused(
+        h,
+        w,
+        "PATCH",
+        f"/api/v1/m/appointments/resources/{w.a.resource}",
+        {"tenant_user_id": str(w.b.user)},
+    )
+
+
+@case("GET", "/api/v1/m/appointments/resources/{resource_id}/hours")
+async def _hours(h: DashHarness, w: World) -> None:
+    assert len(await get_clean(h, w, f"/api/v1/m/appointments/resources/{w.a.resource}/hours")) == 7
+    r = await h.client.get(
+        f"/api/v1/m/appointments/resources/{w.b.resource}/hours", headers=w.headers
+    )
+    assert r.status_code == 404
+
+
+@case("PUT", "/api/v1/m/appointments/resources/{resource_id}/hours")
+async def _set_hours(h: DashHarness, w: World) -> None:
+    await write_refused(
+        h,
+        w,
+        "PUT",
+        f"/api/v1/m/appointments/resources/{w.b.resource}/hours",
+        {"hours": []},
+    )
+
+
+@case("GET", "/api/v1/m/appointments/exceptions")
+async def _exceptions(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, "/api/v1/m/appointments/exceptions")
+    assert [x["id"] for x in body] == [str(w.a.exception)]
+
+
+@case("POST", "/api/v1/m/appointments/exceptions")
+async def _create_exception(h: DashHarness, w: World) -> None:
+    await write_refused(
+        h,
+        w,
+        "POST",
+        "/api/v1/m/appointments/exceptions",
+        {"resource_id": str(w.b.resource), "day": _in_days(9)},
+    )
+    r = await h.client.post(
+        "/api/v1/m/appointments/exceptions", headers=w.headers, json={"day": _in_days(9)}
+    )
+    assert r.status_code == 201  # "everyone" means everyone in A
+
+
+@case("DELETE", "/api/v1/m/appointments/exceptions/{exception_id}")
+async def _delete_exception(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "DELETE", f"/api/v1/m/appointments/exceptions/{w.b.exception}")
 
 
 # ---------------------------------------------------------------- the tests

@@ -75,6 +75,14 @@ export const STATUS_LABEL: Record<string, string> = {
   pending: "Not yet",
   opted_in: "Opted in",
   opted_out: "Opted out",
+  requested: "Requested",
+  completed: "Completed",
+  no_show: "No-show",
+  available: "Available",
+  under_offer: "Under offer",
+  let: "Let",
+  sold: "Sold",
+  archived: "Archived",
 };
 
 export const ESCALATION_LABEL: Record<string, string> = {

@@ -26,13 +26,19 @@ async def enable(
 ) -> tuple[str, ...]:
     """Enable modules and presets for a tenant. Dependencies must be named too (or be enabled
     already) — nothing is switched on silently. Configs are validated before anything is written.
+    A preset brings its starting configs (registry.PRESET_CONFIGS) for modules it switches on for
+    the first time; a module already configured keeps its config. `configs` replaces a config.
     Returns the tenant's enabled keys afterwards."""
     if await s.get(Tenant, tenant_id) is None:
         raise ModuleError("unknown tenant")
+    names = tuple(names)
     keys = registry.expand(names)
+    configs = configs or {}
+    preset = registry.preset_configs(names)
+    for key, raw in preset.items():
+        registry.get(key).validate_config(raw)
     current = (await registry.enabled_for(s, tenant_id)).keys
     registry.resolve({*current, *keys})  # raises if a dependency is missing
-    configs = configs or {}
     unknown_cfg = sorted(set(configs) - set(keys) - set(current))
     if unknown_cfg:
         raise ModuleError(f"config given for modules that are not enabled: {unknown_cfg}")
@@ -44,6 +50,8 @@ async def enable(
         if key in configs:
             values["config"] = configs[key]
             update["config"] = configs[key]
+        elif key in preset:  # first time only: on conflict the stored config stays
+            values["config"] = preset[key]
         await s.execute(
             insert(TenantModule)
             .values(**values)

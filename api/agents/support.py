@@ -189,6 +189,7 @@ class SupportAgent:
                     inbound_wamid=turn.inbound_wamid,
                     now=turn.now,
                     today=turn.today,
+                    timezone=turn.persona.timezone,
                     feature_flags=turn.persona.feature_flags,
                     enabled=turn.persona.enabled,
                 )

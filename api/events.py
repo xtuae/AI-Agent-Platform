@@ -32,17 +32,21 @@ from api.core.logging import get_logger
 log = get_logger(__name__)
 
 CHANNEL = "tenant_events"
-ENTITIES = frozenset({"customers", "orders", "conversations", "messages"})
+ENTITIES = frozenset(
+    {"customers", "orders", "conversations", "messages", "appointments", "listings"}
+)
 QUEUE_MAX = 256
 PING_EVERY_S = 30.0
 
 
 @dataclass(frozen=True)
 class ChangeEvent:
-    entity: str  # customers | orders | conversations | messages | resync
+    entity: str  # one of ENTITIES, or resync
     id: str | None = None
     op: str | None = None
-    parent: str | None = None  # messages → conversation id; orders/conversations → customer id
+    parent: str | None = (
+        None  # messages → conversation; orders, conversations, appointments → customer
+    )
 
     def as_dict(self) -> dict[str, Any]:
         return {"entity": self.entity, "id": self.id, "op": self.op, "parent": self.parent}

@@ -72,6 +72,30 @@ PanelHook = Callable[[AsyncSession, uuid.UUID, date], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
+class Subject:
+    """What an appointment is about, owned by another module (e.g. a listing for a viewing)."""
+
+    module: str
+    id: uuid.UUID
+    label: str
+    location_note: str | None = None
+
+
+class SubjectError(Exception):
+    """A subject parameter was given but cannot be booked (unknown, unavailable, …)."""
+
+    def __init__(self, code: str, **details: Any) -> None:
+        super().__init__(code)
+        self.code = code
+        self.details = details
+
+
+# (session, the booking's extra parameters) → the subject, None when this module's parameter is
+# absent, or raise SubjectError
+SubjectHook = Callable[[AsyncSession, dict[str, Any]], Awaitable[Subject | None]]
+
+
+@dataclass(frozen=True)
 class TodayScope:
     tenant_id: uuid.UUID
     timezone: str
@@ -114,6 +138,7 @@ class Module:
     # contract does not import every module)
     order_redeem: Callable[..., Awaitable[Any]] | None = None  # orders.service.RedeemHook
     order_cancelled: Callable[..., Awaitable[int]] | None = None  # orders.service.CancelHook
+    appointment_subject: SubjectHook | None = None  # an appointment can be about my record
 
     # --- API + dashboard
     router: APIRouter | None = None

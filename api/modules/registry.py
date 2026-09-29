@@ -30,12 +30,20 @@ MODULE_PATHS: Final[tuple[str, ...]] = (
     "api.modules.catalog.module",
     "api.modules.orders.module",
     "api.modules.coupons.module",
+    "api.modules.appointments.module",
+    "api.modules.listings.module",
 )
 
-# An industry is a bundle of capability modules. Real estate and law firm presets are added as
-# their modules are built (appointments first, then listings/leads and intake/matters).
+# An industry is a bundle of capability modules, plus the configs that industry starts with.
+# (Leads for real estate, intake and matters for law firms, come as those modules are built.)
 PRESETS: Final[dict[str, tuple[str, ...]]] = {
     "water_delivery": ("catalog", "orders", "coupons"),
+    "real_estate": ("listings", "appointments"),
+    "law_firm": ("appointments",),
+}
+PRESET_CONFIGS: Final[dict[str, dict[str, dict[str, Any]]]] = {
+    # a person confirms each consultation before it is final (04 §8 decision 2)
+    "law_firm": {"appointments": {"require_team_confirmation": True}},
 }
 
 
@@ -87,6 +95,15 @@ def expand(names: Iterable[str]) -> tuple[str, ...]:
             if key not in out:
                 out.append(key)
     return tuple(out)
+
+
+def preset_configs(names: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """The starting configs of the presets among `names`, by module key."""
+    out: dict[str, dict[str, Any]] = {}
+    for name in names:
+        for key, cfg in PRESET_CONFIGS.get(name, {}).items():
+            out[key] = {**out.get(key, {}), **cfg}
+    return out
 
 
 @dataclass(frozen=True)

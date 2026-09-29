@@ -96,19 +96,19 @@ function BusinessSettings() {
             const v = hours[k];
             if (!v) return null;
             return (
-              <div key={k} className="grid grid-cols-[6.5rem_auto_1fr] items-center gap-2 text-sm">
+              <div key={k} className="grid grid-cols-[1fr_auto] items-center gap-2 text-sm sm:grid-cols-[6.5rem_auto_1fr]">
                 <span>{name}</span>
                 <label className="flex items-center gap-1.5 text-ink-2">
                   <input type="checkbox" className="size-4" checked={v.closed} onChange={(e) => setHours({ ...hours, [k]: { ...v, closed: e.target.checked } })} />
                   Closed
                 </label>
                 {v.closed ? (
-                  <span />
+                  <span className="hidden sm:block" />
                 ) : (
-                  <div className="flex items-center gap-1.5">
-                    <Input type="time" aria-label={`${name} opens`} className="h-9 w-auto" value={v.from} onChange={(e) => setHours({ ...hours, [k]: { ...v, from: e.target.value } })} />
+                  <div className="col-span-2 flex items-center gap-1.5 sm:col-span-1">
+                    <Input type="time" aria-label={`${name} opens`} className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none" value={v.from} onChange={(e) => setHours({ ...hours, [k]: { ...v, from: e.target.value } })} />
                     <span className="text-muted">–</span>
-                    <Input type="time" aria-label={`${name} closes`} className="h-9 w-auto" value={v.to} onChange={(e) => setHours({ ...hours, [k]: { ...v, to: e.target.value } })} />
+                    <Input type="time" aria-label={`${name} closes`} className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none" value={v.to} onChange={(e) => setHours({ ...hours, [k]: { ...v, to: e.target.value } })} />
                   </div>
                 )}
               </div>

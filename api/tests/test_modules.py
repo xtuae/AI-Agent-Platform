@@ -89,7 +89,17 @@ def _vars() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "keys", [(), ("catalog",), ("catalog", "orders"), ("catalog", "orders", "coupons")]
+    "keys",
+    [
+        (),
+        ("catalog",),
+        ("catalog", "orders"),
+        ("catalog", "orders", "coupons"),
+        ("appointments",),
+        ("listings",),
+        ("appointments", "listings"),
+        ALL,  # every module at once still fits the prompt budget
+    ],
 )
 def test_every_module_combination_renders_a_complete_prompt(keys: tuple[str, ...]) -> None:
     prompt = compose.render_support(keys, **_vars())  # StrictUndefined: a stray var raises

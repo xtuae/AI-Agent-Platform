@@ -434,6 +434,7 @@ class TurnRunner:
                 inbound_wamid=wamid,
                 now=now,
                 today=persona.today(now),
+                timezone=persona.timezone,
             )
             await mark_opted_out(ctx, "stop_keyword" if not meter.calls else "classifier")
             conv = await s.get(Conversation, conversation_id)

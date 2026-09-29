@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Final, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,7 @@ class ToolContext:
     inbound_wamid: str | None
     now: datetime
     today: date  # in the tenant's timezone
+    timezone: str = "UTC"  # the tenant's IANA zone: tools that speak in clock times use it
     feature_flags: dict[str, Any] = field(default_factory=dict)
     enabled: Enabled = field(default_factory=Enabled)  # the tenant's modules and their configs
     escalations: list[Escalation] = field(default_factory=list)
@@ -83,6 +85,13 @@ class Tool:
                 "parameters": self.parameters,
             },
         }
+
+
+def tenant_zone(ctx: ToolContext) -> ZoneInfo:
+    try:
+        return ZoneInfo(ctx.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("UTC")
 
 
 def error(code: str, **details: Any) -> ToolResult:

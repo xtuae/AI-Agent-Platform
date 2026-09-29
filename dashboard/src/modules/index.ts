@@ -3,12 +3,14 @@
 // panel and settings section for the tenants that have it switched on.
 import { useMemo } from "react";
 import { useAuth } from "@/lib/auth";
+import { appointments } from "./appointments";
 import { catalog } from "./catalog";
 import { coupons } from "./coupons";
+import { listings } from "./listings";
 import { orders } from "./orders";
 import type { ModuleDef } from "./types";
 
-export const MODULES: readonly ModuleDef[] = [catalog, orders, coupons];
+export const MODULES: readonly ModuleDef[] = [catalog, orders, coupons, appointments, listings];
 
 /** The modules the signed-in tenant has, in canonical order. */
 export function useModules(): ModuleDef[] {
