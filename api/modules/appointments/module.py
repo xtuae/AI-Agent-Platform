@@ -7,7 +7,7 @@ book_appointment through `tool_params` and resolves it in its hook.
 
 from __future__ import annotations
 
-from api.modules.appointments import hooks, routes
+from api.modules.appointments import hooks, routes, segments
 from api.modules.appointments.config import AppointmentsConfig
 from api.modules.appointments.tools import (
     book_appointment,
@@ -78,6 +78,7 @@ MODULE = Module(
     intents=(Intent(50, "booking", "Wants to book, move, cancel or check an appointment."),),
     customer_block=hooks.customer_block,
     customer_context=hooks.customer_context,
+    segment_fields=segments.FIELDS,
     router=routes.router,
     today=hooks.today,
     contact_panel=hooks.contact_panel,

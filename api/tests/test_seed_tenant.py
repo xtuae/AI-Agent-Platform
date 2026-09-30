@@ -94,7 +94,7 @@ async def test_seed_is_idempotent_and_complete(
         assert ts is not None
         # the profile's preset is switched on (idempotently: seeded twice above)
         enabled = await registry.enabled_for(s, first.tenant_id)
-        assert enabled.keys == ("catalog", "orders", "coupons")
+        assert enabled.keys == ("catalog", "orders", "coupons", "campaigns")
         assert ts.monthly_message_cap_aed == Decimal("100.00")
 
     async with db.tenant_session(first.tenant_id) as s:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from api.modules.base import Intent, Line, Module, ModuleConfig
-from api.modules.orders import hooks, routes
+from api.modules.orders import hooks, routes, segments
 from api.modules.orders.tools import create_order, get_order_status, reschedule_delivery
 
 
@@ -77,6 +77,8 @@ MODULE = Module(
     ),
     customer_block=hooks.customer_block,
     customer_context=hooks.customer_context,
+    segment_fields=segments.FIELDS,
+    campaign_attribution=segments.attribution,
     router=routes.router,
     today=hooks.today,
     contact_panel=hooks.contact_panel,

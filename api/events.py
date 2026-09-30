@@ -33,7 +33,7 @@ log = get_logger(__name__)
 
 CHANNEL = "tenant_events"
 ENTITIES = frozenset(
-    {"customers", "orders", "conversations", "messages", "appointments", "listings"}
+    {"customers", "orders", "conversations", "messages", "appointments", "listings", "campaigns"}
 )
 QUEUE_MAX = 256
 PING_EVERY_S = 30.0

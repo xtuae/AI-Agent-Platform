@@ -22,7 +22,7 @@ from api.db.session import Database
 from api.main import create_app
 from api.modules import registry
 from api.modules.registry import Enabled, ModuleError, enabled_of
-from api.tests.conftest import DashHarness, make_customer, make_tenant
+from api.tests.conftest import WATER_PRESET, DashHarness, make_customer, make_tenant
 
 ALL = tuple(registry.all_modules())
 CORE_TOOL_NAMES = {t.name for t in CORE_TOOLS}
@@ -33,7 +33,7 @@ WATER_WORDS = re.compile(r"coupon|bottle|deliver|order", re.I)
 
 
 def test_presets_resolve_and_dependencies_are_enforced() -> None:
-    assert registry.expand(["water_delivery"]) == ("catalog", "orders", "coupons")
+    assert registry.expand(["water_delivery"]) == ("catalog", "orders", "coupons", "campaigns")
     assert [m.key for m in registry.resolve(["coupons", "orders", "catalog"])] == [
         "catalog",
         "orders",
@@ -128,7 +128,7 @@ def test_tools_follow_the_modules() -> None:
     catalog_only = toolset(enabled_of(["catalog"]))
     assert "get_products" in catalog_only
     assert "create_order" not in catalog_only
-    water = toolset(enabled_of(["water_delivery"]))
+    water = toolset(enabled_of(WATER_PRESET))
     assert "use_coupon_book" in water["create_order"].parameters["properties"]
     no_coupons = toolset(enabled_of(["catalog", "orders"]))
     assert "use_coupon_book" not in no_coupons["create_order"].parameters["properties"]
@@ -276,7 +276,12 @@ async def test_admin_enable_disable_and_config(db: Database) -> None:
         with pytest.raises(ModuleError, match="requires"):
             await admin.enable(s, tenant, ["orders"])  # catalog not named, not enabled
     async with db.platform_session() as s:
-        assert await admin.enable(s, tenant, ["water_delivery"]) == ("catalog", "orders", "coupons")
+        assert await admin.enable(s, tenant, ["water_delivery"]) == (
+            "catalog",
+            "orders",
+            "coupons",
+            "campaigns",
+        )
     async with db.platform_session() as s:
         with pytest.raises(ModuleError, match="still needs"):
             await admin.disable(s, tenant, ["orders"])  # coupons needs it
@@ -285,7 +290,7 @@ async def test_admin_enable_disable_and_config(db: Database) -> None:
             await admin.enable(s, tenant, [], configs={"orders": {"lead_days": 99}})
     async with db.platform_session() as s:
         await admin.enable(s, tenant, [], configs={"orders": {"lead_days": 1}})
-        assert await admin.disable(s, tenant, ["coupons"]) == ("catalog", "orders")
+        assert await admin.disable(s, tenant, ["coupons"]) == ("catalog", "orders", "campaigns")
     async with db.platform_session() as s:
         enabled = await registry.enabled_for(s, tenant)
     assert getattr(enabled.config("orders"), "lead_days", None) == 1

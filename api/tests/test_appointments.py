@@ -805,10 +805,11 @@ async def test_presets(db: Database) -> None:
     law = await make_tenant(db, "law", modules=())
     estate = await make_tenant(db, "estate", modules=())
     async with db.platform_session() as s:
-        assert await modules_admin.enable(s, law, ["law_firm"]) == ("appointments",)
+        assert await modules_admin.enable(s, law, ["law_firm"]) == ("appointments", "campaigns")
         assert await modules_admin.enable(s, estate, ["real_estate"]) == (
             "appointments",
             "listings",
+            "campaigns",
         )
     async with db.platform_session() as s:
         cfg = (await registry.enabled_for(s, law)).config("appointments")

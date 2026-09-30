@@ -18,6 +18,7 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -29,11 +30,14 @@ from api.db.models import (
     AuditLog,
     AvailabilityException,
     AvailabilityRule,
+    Campaign,
+    CampaignRecipient,
     Conversation,
     CouponBook,
     Customer,
     Listing,
     Message,
+    MessageTemplate,
     Order,
     Product,
     TenantChannel,
@@ -63,6 +67,9 @@ class Side:
     resource: uuid.UUID
     exception: uuid.UUID
     appointment: uuid.UUID
+    template: uuid.UUID
+    campaign: uuid.UUID
+    waba: str
     ids: set[str]
 
 
@@ -89,7 +96,7 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
             )
         )
     async with h.db.platform_session() as s:
-        await modules_admin.enable(s, tenant, ["listings", "appointments"])
+        await modules_admin.enable(s, tenant, ["listings", "appointments", "campaigns"])
     user = await h.user(
         tenant, "agent", email=f"{mark.lower()}-{uuid.uuid4().hex[:6]}@example.test"
     )
@@ -99,6 +106,7 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
         c = await s.get(Customer, customer)
         assert c is not None
         c.name, c.area, c.address_note = f"{mark} Customer", f"{mark} Area", f"{mark} villa"
+        c.opt_in_status = "opted_in"
         p = Product(sku=sku, name_en=f"{mark} Water", category="water", price_aed=Decimal("7"))
         s.add(p)
         book = CouponBook(
@@ -199,18 +207,40 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
             notes=f"{mark} appointment note",
             source="dashboard",
         )
-        s.add_all([exc, appt])
+        template = MessageTemplate(
+            name=f"{mark.lower()}_offer",
+            language="en",
+            category="MARKETING",
+            body=f"Hi {{{{1}}}}, {mark} offer this week.",
+            variables=[{"index": 1, "meaning": "name", "example": "Sara"}],
+            meta_status="APPROVED",
+        )
+        s.add_all([exc, appt, template])
         await s.flush()
+        camp = Campaign(
+            name=f"{mark} campaign",
+            template_id=template.id,
+            segment_query={"opt_in_status": "opted_in"},
+            variable_bindings=[{"source": "contact.first_name", "fallback": "there"}],
+        )
+        s.add(camp)
+        await s.flush()
+        s.add(
+            CampaignRecipient(
+                campaign_id=camp.id, customer_id=customer, status="skipped", skip_reason=mark
+            )
+        )
         ids = {
             str(x)
             for x in (
                 customer, p.id, book.id, order.id, conv.id, user.id, channel.id,
-                listing.id, atype.id, resource.id, exc.id, appt.id,
+                listing.id, atype.id, resource.id, exc.id, appt.id, template.id, camp.id,
             )
         }  # fmt: skip
         return Side(
             tenant, customer, p.id, sku, book.id, order.id, conv.id, user.id,
-            listing.id, listing.ref, atype.id, resource.id, exc.id, appt.id, ids,
+            listing.id, listing.ref, atype.id, resource.id, exc.id, appt.id, template.id, camp.id,
+            channel.waba_id or "", ids,
         )  # fmt: skip
 
 
@@ -245,6 +275,9 @@ async def b_snapshot(h: DashHarness, w: World) -> str:
             AvailabilityRule,
             AvailabilityException,
             Appointment,
+            MessageTemplate,
+            Campaign,
+            CampaignRecipient,
         ):
             for obj in (await s.scalars(select(model))).all():
                 rows.append({k: str(v) for k, v in vars(obj).items() if not k.startswith("_")})
@@ -468,8 +501,6 @@ async def _handback(h: DashHarness, w: World) -> None:
 
 @case("POST", "/api/v1/conversations/{conversation_id}/messages")
 async def _reply(h: DashHarness, w: World) -> None:
-    import httpx
-
     def never(_r: httpx.Request) -> httpx.Response:
         raise AssertionError("no WhatsApp send for another tenant's conversation")
 
@@ -834,6 +865,183 @@ async def _create_exception(h: DashHarness, w: World) -> None:
 @case("DELETE", "/api/v1/m/appointments/exceptions/{exception_id}")
 async def _delete_exception(h: DashHarness, w: World) -> None:
     await write_refused(h, w, "DELETE", f"/api/v1/m/appointments/exceptions/{w.b.exception}")
+
+
+# ---------------------------------------------------------------- campaigns
+
+
+C = "/api/v1/m/campaigns"
+
+
+class _Meta:
+    """Graph API stand-in that remembers every URL (to prove only A's account is touched)."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.urls.append(str(request.url))
+        if request.url.path.endswith("/message_templates") and request.method == "GET":
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(200, json={"id": "1", "status": "PENDING"})
+
+
+@case("GET", f"{C}/guardrails")
+async def _guardrails(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"{C}/guardrails")
+
+
+@case("GET", f"{C}/templates")
+async def _templates(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, f"{C}/templates")
+    assert [t["id"] for t in body] == [str(w.a.template)]
+
+
+@case("POST", f"{C}/templates/check")
+async def _check(h: DashHarness, w: World) -> None:
+    r = await h.client.post(f"{C}/templates/check", headers=w.headers, json={"body": "Hi there."})
+    assert r.status_code == 200
+
+
+@case("POST", f"{C}/templates/draft")
+async def _draft(h: DashHarness, w: World) -> None:
+    from api.llm.router import LLMResult
+
+    prompts: list[str] = []
+
+    class LLM:
+        async def chat(self, **kw: Any) -> LLMResult:
+            prompts.append(kw["messages"][0]["content"])
+            out = {
+                "name": "x_offer",
+                "category": "MARKETING",
+                "language": "en",
+                "body": "Hi there, new stock.",
+            }
+            return LLMResult(json.dumps(out), [], "gemini", "m", 1, 1, 1, Decimal(0))
+
+    h.app.state.llm = LLM()
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        f"{C}/templates/draft", headers=w.headers, json={"objective": "restock news"}
+    )
+    assert r.status_code == 200, r.text
+    assert B_MARK not in prompts[0]
+    assert await b_snapshot(h, w) == before
+
+
+@case("POST", f"{C}/templates")
+async def _create_template(h: DashHarness, w: World) -> None:
+    before = await b_snapshot(h, w)
+    r = await h.client.post(
+        f"{C}/templates",
+        headers=w.headers,
+        json={
+            "name": f"{B_MARK.lower()}_offer",
+            "language": "en",
+            "body": "Hi there, new stock this week.",
+        },
+    )
+    assert r.status_code == 201, r.text  # template names are per tenant
+    assert await b_snapshot(h, w) == before
+
+
+@case("PATCH", f"{C}/templates/{{template_id}}")
+async def _patch_template(h: DashHarness, w: World) -> None:
+    await write_refused(
+        h, w, "PATCH", f"{C}/templates/{w.b.template}", {"body": "Hi there, changed."}
+    )
+
+
+@case("POST", f"{C}/templates/{{template_id}}/submit")
+async def _submit_template(h: DashHarness, w: World) -> None:
+    meta = _Meta()
+    h.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(meta))
+    await write_refused(h, w, "POST", f"{C}/templates/{w.b.template}/submit")
+    assert meta.urls == []
+
+
+@case("POST", f"{C}/templates/sync")
+async def _sync(h: DashHarness, w: World) -> None:
+    meta = _Meta()
+    h.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(meta))
+    before = await b_snapshot(h, w)
+    r = await h.client.post(f"{C}/templates/sync", headers=w.headers)
+    assert r.status_code == 200, r.text
+    assert meta.urls
+    assert all(w.a.waba in u and w.b.waba not in u for u in meta.urls)
+    assert await b_snapshot(h, w) == before
+
+
+@case("GET", f"{C}/segment-fields")
+async def _segment_fields(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"{C}/segment-fields")
+
+
+@case("POST", f"{C}/segments/count")
+async def _count(h: DashHarness, w: World) -> None:
+    r = await h.client.post(f"{C}/segments/count", headers=w.headers, json={"definition": {}})
+    assert r.json()["recipients"] == 1  # A's one opted-in customer, not B's
+    r = await h.client.post(
+        f"{C}/segments/count",
+        headers=w.headers,
+        json={"definition": {"area_in": [f"{B_MARK} Area"]}},
+    )
+    assert r.json()["recipients"] == 0
+
+
+@case("GET", C)
+async def _campaigns(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, C)
+    assert [c["id"] for c in body] == [str(w.a.campaign)]
+
+
+@case("POST", C)
+async def _create_campaign(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "POST", C, {"name": "x", "template_id": str(w.b.template)})
+    r = await h.client.post(
+        C, headers=w.headers, json={"name": "x", "segment": {}, "tenant_id": str(w.b.tenant)}
+    )
+    assert r.status_code == 422
+
+
+@case("GET", f"{C}/{{campaign_id}}")
+async def _campaign(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"{C}/{w.a.campaign}")
+    assert (await h.client.get(f"{C}/{w.b.campaign}", headers=w.headers)).status_code == 404
+
+
+@case("PATCH", f"{C}/{{campaign_id}}")
+async def _patch_campaign(h: DashHarness, w: World) -> None:
+    await write_refused(h, w, "PATCH", f"{C}/{w.b.campaign}", {"name": "x"})
+    # A's draft pointed at B's template
+    await write_refused(h, w, "PATCH", f"{C}/{w.a.campaign}", {"template_id": str(w.b.template)})
+
+
+@case("GET", f"{C}/{{campaign_id}}/preview")
+async def _preview(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, f"{C}/{w.a.campaign}/preview")
+    assert body["recipients"] == 1
+    assert (await h.client.get(f"{C}/{w.b.campaign}/preview", headers=w.headers)).status_code == 404
+
+
+@case("GET", f"{C}/{{campaign_id}}/recipients")
+async def _recipients(h: DashHarness, w: World) -> None:
+    body = await get_clean(h, w, f"{C}/{w.a.campaign}/recipients")
+    assert body["total"] == 1
+    r = await h.client.get(f"{C}/{w.b.campaign}/recipients", headers=w.headers)
+    assert r.status_code == 404
+
+
+def _transition(action: str) -> Case:
+    async def run(h: DashHarness, w: World) -> None:
+        await write_refused(h, w, "POST", f"{C}/{w.b.campaign}/{action}")
+
+    return run
+
+
+for _action in ("approve", "start", "pause", "resume", "cancel"):
+    case("POST", f"{C}/{{campaign_id}}/{_action}")(_transition(_action))
 
 
 # ---------------------------------------------------------------- the tests

@@ -24,11 +24,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import date
-from typing import TYPE_CHECKING, Any
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
@@ -96,6 +97,41 @@ SubjectHook = Callable[[AsyncSession, dict[str, Any]], Awaitable[Subject | None]
 
 
 @dataclass(frozen=True)
+class SegmentScope:
+    now: datetime
+    today: date  # in the tenant's timezone
+
+
+@dataclass(frozen=True)
+class SegmentField:
+    """One key a campaign segment definition may use (02 §4.3), e.g. last_order_before_days.
+
+    `clause` receives the value, already validated against `kind` / `minimum` / `maximum` /
+    `choices`, and returns a boolean SQL condition over `customers` (correlated subqueries are
+    fine). The compiler ANDs every clause UNDER its own opt-in filter, so no field can widen a
+    segment beyond opted-in customers."""
+
+    name: str
+    label: str
+    kind: Literal["int", "text", "text_list"]
+    help: str
+    clause: Callable[[Any, SegmentScope], ColumnElement[bool]]
+    minimum: int = 0
+    maximum: int = 100_000
+    choices: tuple[str, ...] = ()
+
+
+# (session, customer id, now, the module's config) → a block of context for the support prompt when
+# the customer's message is a reply to something the module sent (campaigns: 02 §4.2), or None
+ReplyContextHook = Callable[
+    [AsyncSession, uuid.UUID, datetime, "ModuleConfig | None"], Awaitable[str | None]
+]
+
+# (session, campaign id, attribution window in days) → figures for the campaign's results
+AttributionHook = Callable[[AsyncSession, uuid.UUID, int], Awaitable[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
 class TodayScope:
     tenant_id: uuid.UUID
     timezone: str
@@ -139,6 +175,9 @@ class Module:
     order_redeem: Callable[..., Awaitable[Any]] | None = None  # orders.service.RedeemHook
     order_cancelled: Callable[..., Awaitable[int]] | None = None  # orders.service.CancelHook
     appointment_subject: SubjectHook | None = None  # an appointment can be about my record
+    segment_fields: tuple[SegmentField, ...] = ()  # keys campaign segments may filter on
+    campaign_attribution: AttributionHook | None = None  # what a campaign led to (orders…)
+    reply_context: ReplyContextHook | None = None  # "this is a reply to …" for the support prompt
 
     # --- API + dashboard
     router: APIRouter | None = None

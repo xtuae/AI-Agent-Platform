@@ -722,5 +722,6 @@ async def test_quality_update_is_stored_under_waba_tenant(
     ).status_code == 200
     events = await events_for(webhook.db, channels.t.a)
     assert [(e.field, e.kind) for e in events] == [("phone_number_quality_update", "other")]
-    assert webhook.jobs.jobs == []  # consumed by the Phase 4 quality guard
+    # the quality guard (02 §4.4) re-reads the rating from Meta, for tenant A only
+    assert [(j[0], j[1]) for j in webhook.jobs.jobs] == [("refresh_quality", (str(channels.t.a),))]
     assert await events_for(webhook.db, channels.t.b) == []

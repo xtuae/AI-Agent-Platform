@@ -32,14 +32,15 @@ MODULE_PATHS: Final[tuple[str, ...]] = (
     "api.modules.coupons.module",
     "api.modules.appointments.module",
     "api.modules.listings.module",
+    "api.modules.campaigns.module",
 )
 
 # An industry is a bundle of capability modules, plus the configs that industry starts with.
 # (Leads for real estate, intake and matters for law firms, come as those modules are built.)
 PRESETS: Final[dict[str, tuple[str, ...]]] = {
-    "water_delivery": ("catalog", "orders", "coupons"),
-    "real_estate": ("listings", "appointments"),
-    "law_firm": ("appointments",),
+    "water_delivery": ("catalog", "orders", "coupons", "campaigns"),
+    "real_estate": ("listings", "appointments", "campaigns"),
+    "law_firm": ("appointments", "campaigns"),
 }
 PRESET_CONFIGS: Final[dict[str, dict[str, dict[str, Any]]]] = {
     # a person confirms each consultation before it is final (04 §8 decision 2)

@@ -68,6 +68,7 @@ class TenantChannel(Base):
     webhook_verify_token: Mapped[str | None] = mapped_column(Text)
     quality_rating: Mapped[str | None] = mapped_column(Text)
     messaging_limit_tier: Mapped[str | None] = mapped_column(Text)
+    quality_updated_at: Mapped[datetime | None]
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
     def __repr__(self) -> str:  # keep ciphertext out of tracebacks and debug output

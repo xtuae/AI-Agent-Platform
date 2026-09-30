@@ -35,7 +35,7 @@ export function parseSse(buffer: string): { frames: SseFrame[]; rest: string } {
 }
 
 export interface ChangeEvent {
-  entity: "customers" | "orders" | "conversations" | "messages" | "appointments" | "listings" | "resync";
+  entity: "customers" | "orders" | "conversations" | "messages" | "appointments" | "listings" | "campaigns" | "resync";
   id: string | null;
   op: string | null;
   parent: string | null;
@@ -52,6 +52,8 @@ export function keysFor(ev: ChangeEvent): QueryKey[] {
       return [["appointments"], ["appointment", ev.id], ["today"], ["customer", ev.parent]];
     case "listings":
       return [["listings"], ["today"]];
+    case "campaigns":
+      return [["campaigns"], ["campaign", ev.id], ["today"]];
     case "conversations":
       return [["conversations"], ["thread", ev.id], ["today"]];
     case "messages":

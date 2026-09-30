@@ -4,13 +4,14 @@
 import { useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { appointments } from "./appointments";
+import { campaigns } from "./campaigns";
 import { catalog } from "./catalog";
 import { coupons } from "./coupons";
 import { listings } from "./listings";
 import { orders } from "./orders";
 import type { ModuleDef } from "./types";
 
-export const MODULES: readonly ModuleDef[] = [catalog, orders, coupons, appointments, listings];
+export const MODULES: readonly ModuleDef[] = [catalog, orders, coupons, appointments, listings, campaigns];
 
 /** The modules the signed-in tenant has, in canonical order. */
 export function useModules(): ModuleDef[] {

@@ -18,6 +18,7 @@ from api.core.logging import configure_logging, get_logger
 from api.core.middleware import CorrelationIdMiddleware
 from api.db.session import Database
 from api.events import EventBroker
+from api.llm.router import LLMRouter
 from api.webhooks import meta as meta_webhook
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.router import TenantRouter
@@ -59,6 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.meta_http_timeout_s, connect=settings.meta_connect_timeout_s
         ),
     )
+    # dashboard-side LLM use only (the campaign copy drafter); the agent runs in workers
+    app.state.llm = LLMRouter(app.state.http, settings)
     app.state.events = EventBroker(
         str(settings.database_url), connect_timeout_s=settings.db_connect_timeout_s
     )

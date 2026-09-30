@@ -37,15 +37,19 @@ from api.config import Settings
 from api.core.crypto import encrypt_secret
 from api.db.models import (
     AuditLog,
+    Campaign,
+    CampaignRecipient,
     Conversation,
     CouponBook,
     CouponPackage,
     Customer,
     Message,
+    MessageTemplate,
     Order,
     Product,
     Tenant,
     TenantChannel,
+    TenantModule,
     TenantSettings,
     UsageDaily,
 )
@@ -56,7 +60,7 @@ from api.meta.client import MetaClient
 from api.metering import usage_day
 from api.modules.catalog import tools as get_products
 from api.modules.registry import enabled_of
-from api.tests.conftest import RecordingEnqueuer, make_tenant, meta_id, wamid
+from api.tests.conftest import WATER_PRESET, RecordingEnqueuer, make_tenant, meta_id, wamid
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.payloads import WebhookPayload
 from api.webhooks.router import TenantRouter
@@ -824,7 +828,7 @@ async def test_20_tool_failure_holds_and_escalates_never_invents(
 
     if LIVE:
         pytest.skip("scripted-only: forces the tool call")
-    tools = toolset(enabled_of(["water_delivery"]))  # the cached set the agent uses
+    tools = toolset(enabled_of(WATER_PRESET))  # the cached set the agent uses
     monkeypatch.setitem(tools, "get_products", replace(get_products.TOOL, run=db_timeout))
     llm = shop.brain(
         "price",
@@ -841,6 +845,70 @@ async def test_20_tool_failure_holds_and_escalates_never_invents(
 
 
 # ================================================================ pipeline behaviour beyond the 20
+
+
+async def test_a_campaign_reply_reaches_the_agent_with_its_context(shop: Shop) -> None:
+    """02 §4.2: a reply to a campaign goes through the normal pipeline, with the campaign's
+    message added to the support prompt, and is counted on the campaign once."""
+    if LIVE:
+        pytest.skip("scripted-only: inspects the prompt")
+    async with shop.db.platform_session() as s:
+        s.add(TenantModule(tenant_id=shop.tenant_id, module_key="campaigns"))
+    sent_body = "Hi Ahmed, snacks are 10% off with your next water order this week."
+    async with shop.db.tenant_session(shop.tenant_id) as s:
+        customer = await s.scalar(select(Customer).where(Customer.wa_id == KNOWN))
+        assert customer is not None
+        conv = await s.scalar(
+            select(Conversation).where(
+                Conversation.customer_id == customer.id, Conversation.state != "closed"
+            )
+        ) or Conversation(customer_id=customer.id, channel_id=shop.channel.id, state="open")
+        template = MessageTemplate(
+            name="snack_offer", language="en", category="MARKETING", body=sent_body
+        )
+        s.add_all([conv, template])
+        await s.flush()
+        camp = Campaign(
+            name="Snacks",
+            template_id=template.id,
+            status="sending",
+            approved_by=uuid.uuid4(),
+            approved_at=datetime.now(UTC),
+        )
+        s.add(camp)
+        await s.flush()
+        w = wamid()
+        s.add(
+            Message(
+                conversation_id=conv.id,
+                wamid=w,
+                direction="out",
+                msg_type="template",
+                body=sent_body,
+                status="delivered",
+            )
+        )
+        s.add(
+            CampaignRecipient(
+                campaign_id=camp.id,
+                customer_id=customer.id,
+                status="delivered",
+                wamid=w,
+                sent_at=datetime.now(UTC) - timedelta(hours=1),
+            )
+        )
+        camp_id = camp.id
+    llm = shop.brain("order", "en", say("Lovely. Which snacks would you like with your water?"))
+    await shop.receive(KNOWN, "yes please, what snacks do you have")
+    assert await shop.run_turns(llm) == ["replied"]
+    support = next(c for c in llm.calls if not c.get("json_mode"))
+    system = support["messages"][0]["content"]
+    assert "This customer is replying to a campaign message you sent on" in system
+    assert f'"{sent_body}"' in system
+    async with shop.db.tenant_session(shop.tenant_id) as s:
+        camp2 = await s.get(Campaign, camp_id)
+    assert camp2 is not None
+    assert camp2.reply_count == 1
 
 
 async def test_awaiting_human_suppresses_agent_but_not_stop(shop: Shop) -> None:

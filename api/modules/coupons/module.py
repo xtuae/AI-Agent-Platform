@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from api.modules.base import Intent, Line, Module
-from api.modules.coupons import hooks, tools
+from api.modules.coupons import hooks, segments, tools
 
 MODULE = Module(
     key="coupons",
@@ -46,4 +46,5 @@ MODULE = Module(
     order_redeem=hooks.redeem,
     order_cancelled=hooks.restore,
     contact_panel=hooks.contact_panel,
+    segment_fields=segments.FIELDS,
 )

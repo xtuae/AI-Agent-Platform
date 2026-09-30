@@ -53,6 +53,8 @@ _WA_ID = re.compile(r"^[1-9][0-9]{6,14}$")  # E.164 digits, no '+'
 JOB_INBOUND = "handle_inbound_message"
 JOB_STATUS = "apply_status_event"
 JOB_TEMPLATE = "apply_template_status_event"
+JOB_QUALITY = "refresh_quality"  # re-read the number's quality rating (campaign guard, 02 §4.4)
+QUALITY_FIELDS = frozenset({"phone_number_quality_update", "account_update"})
 
 
 class Enqueuer(Protocol):
@@ -240,7 +242,7 @@ class WebhookIngestor:
                     kind=kind,
                     waba_id=entry.id,
                     payload=change.value,
-                    # 'other' fields are stored for later phases (quality guard is Phase 4).
+                    # other fields are stored; a quality update also queues a re-read below
                     processed_at=None if kind == "template_status" else datetime.now(UTC),
                 )
                 s.add(event)
@@ -250,6 +252,8 @@ class WebhookIngestor:
                     jobs.append(
                         _Job(JOB_TEMPLATE, (str(tenant_id), str(event.id)), f"ev:{event.id}")
                     )
+                elif change.field in QUALITY_FIELDS:
+                    jobs.append(_Job(JOB_QUALITY, (str(tenant_id),), f"quality:{event.id}"))
             committed = True
         except (SQLAlchemyError, OSError) as exc:
             # Type only: DB errors carry bound parameters / failing rows, i.e. message bodies.

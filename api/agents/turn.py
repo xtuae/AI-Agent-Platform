@@ -265,6 +265,16 @@ class TurnRunner:
             new_conversation = await is_new_conversation(s, conv)
             summary = conv.summary
             known_language = conv.language or customer.language
+            # is this a reply to something a module sent (a campaign)? counted here, whatever
+            # the intent turns out to be; the context goes to the support prompt below
+            reply_blocks: list[str] = []
+            for module in persona.enabled.modules:
+                if module.reply_context is not None:
+                    text = await module.reply_context(
+                        s, customer_id, now, persona.enabled.config(module.key)
+                    )
+                    if text:
+                        reply_blocks.append(text)
 
         # 6. classify
         try:
@@ -351,6 +361,8 @@ class TurnRunner:
             customer = await s.get(Customer, customer_id)
             assert customer is not None
             customer_block = await render_customer_block(s, customer, today, persona.enabled)
+            if reply_blocks:
+                customer_block = "\n\n".join([customer_block, *reply_blocks])
             history, previous_out = await load_history(s, conversation_id)
             knowledge = await retrieve_knowledge(s, self._embedder, customer_text)
         system_prompt, chunks_used, prompt_tokens_est = render_support_prompt(

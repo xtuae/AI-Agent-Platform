@@ -1,6 +1,5 @@
 """Import every model so Base.metadata is complete (Alembic, tests)."""
 
-from api.db.models.campaigns import Campaign, CampaignRecipient, MessageTemplate
 from api.db.models.conversations import Conversation, Message
 from api.db.models.customers import Customer
 from api.db.models.knowledge import KnowledgeChunk
@@ -27,6 +26,7 @@ from api.modules.appointments.models import (
     AvailabilityException,
     AvailabilityRule,
 )
+from api.modules.campaigns.models import Campaign, CampaignRecipient, MessageTemplate
 from api.modules.catalog.models import Product
 from api.modules.coupons.models import CouponBook, CouponPackage
 from api.modules.listings.models import Listing

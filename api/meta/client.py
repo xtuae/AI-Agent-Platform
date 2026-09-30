@@ -1,5 +1,6 @@
-"""Meta Graph API client: send_text, send_template, send_interactive, download_media,
-get_template_status. Used ONLY from workers — never from the webhook request handler.
+"""Meta Graph API client: sends, media, templates (create / list / status) and the phone's
+quality rating. Never used from the webhook request handler (it must answer in < 200 ms): sends
+run in workers; template submission and syncing also run from dashboard requests.
 
 * Every request has an explicit timeout.
 * Retries 429 and 5xx with exponential backoff + jitter, honouring Retry-After.
@@ -84,10 +85,34 @@ class TemplateInfo(_Model):
     language: str | None = None
     status: str
     category: str | None = None
+    rejected_reason: str | None = None
+    components: list[dict[str, Any]] = []
+
+    def body_text(self) -> str | None:
+        for c in self.components:
+            if str(c.get("type", "")).upper() == "BODY" and isinstance(c.get("text"), str):
+                return str(c["text"])
+        return None
+
+
+class _Paging(_Model):
+    next: str | None = None
 
 
 class _TemplateList(_Model):
     data: list[TemplateInfo] = []
+    paging: _Paging | None = None
+
+
+class _CreatedTemplate(_Model):
+    id: str
+    status: str | None = None
+    category: str | None = None
+
+
+class PhoneStatus(_Model):
+    quality_rating: str | None = None  # GREEN | YELLOW | RED | UNKNOWN
+    messaging_limit_tier: str | None = None  # TIER_250 | TIER_1K | TIER_10K | TIER_100K | …
 
 
 @dataclass(frozen=True)
@@ -190,11 +215,73 @@ class MetaClient:
 
     # ------------------------------------------------------------ templates
 
+    async def create_template(
+        self,
+        waba_id: str,
+        *,
+        name: str,
+        language: str,
+        category: str,
+        body: str,
+        examples: list[str],
+    ) -> tuple[str, str | None]:
+        """Submit a body-only template for approval. Returns (meta template id, status)."""
+        component: dict[str, Any] = {"type": "BODY", "text": body}
+        if examples:
+            component["example"] = {"body_text": [examples]}
+        resp = await self._request(
+            "POST",
+            f"{self._root}/{waba_id}/message_templates",
+            json={
+                "name": name,
+                "language": language,
+                "category": category,
+                "components": [component],
+            },
+            idempotent=False,
+        )
+        try:
+            created = _CreatedTemplate.model_validate(resp.json())
+        except (ValidationError, ValueError) as exc:
+            raise MetaAPIError(resp.status_code, "unexpected template create response") from exc
+        return created.id, created.status
+
+    async def list_templates(self, waba_id: str, *, limit: int = 500) -> list[TemplateInfo]:
+        """Every template on the WABA (paged), with status and body."""
+        out: list[TemplateInfo] = []
+        url: str | None = f"{self._root}/{waba_id}/message_templates"
+        params: dict[str, str] | None = {
+            "fields": "id,name,language,status,category,rejected_reason,components",
+            "limit": "100",
+        }
+        while url and len(out) < limit:
+            resp = await self._request("GET", url, params=params, idempotent=True)
+            try:
+                page = _TemplateList.model_validate(resp.json())
+            except (ValidationError, ValueError) as exc:
+                raise MetaAPIError(resp.status_code, "unexpected template list shape") from exc
+            out.extend(page.data)
+            url = page.paging.next if page.paging and page.paging.next else None
+            params = None  # the next link carries its own query
+        return out[:limit]
+
+    async def phone_status(self) -> PhoneStatus:
+        resp = await self._request(
+            "GET",
+            f"{self._root}/{self._pnid}",
+            params={"fields": "quality_rating,messaging_limit_tier"},
+            idempotent=True,
+        )
+        try:
+            return PhoneStatus.model_validate(resp.json())
+        except (ValidationError, ValueError) as exc:
+            raise MetaAPIError(resp.status_code, "unexpected phone status shape") from exc
+
     async def get_template_status(self, waba_id: str, name: str) -> list[TemplateInfo]:
         resp = await self._request(
             "GET",
             f"{self._root}/{waba_id}/message_templates",
-            params={"name": name, "fields": "id,name,language,status,category"},
+            params={"name": name, "fields": "id,name,language,status,category,rejected_reason"},
             idempotent=True,
         )
         try:

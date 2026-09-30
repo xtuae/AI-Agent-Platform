@@ -26,6 +26,8 @@ from api.llm.router import LLMRouter
 from api.llm.transcribe import GeminiTranscriber
 from api.meta.client import MetaClient
 from api.meta.outbound import client_for_channel
+from api.modules.campaigns.jobs import campaign_housekeeping, poll_templates, refresh_quality
+from api.modules.campaigns.sender import run_campaign
 from api.workers.jobs.escalation import notify_escalation
 from api.workers.jobs.noop import noop
 from api.workers.jobs.summarise import summarise_conversation
@@ -55,6 +57,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         db=db,
         http=http,
         llm=llm,
+        client_factory=client_factory,
         turn_runner=TurnRunner(
             db=db,
             redis=ctx["redis"],
@@ -94,6 +97,9 @@ class WorkerSettings:
         apply_template_status_event,
         summarise_conversation,
         notify_escalation,
+        run_campaign,
+        refresh_quality,
+        poll_templates,
     ]
     on_startup = startup
     on_shutdown = shutdown
@@ -108,7 +114,11 @@ class WorkerSettings:
 
 class SchedulerSettings:
     functions: ClassVar[list[WorkerCoroutine]] = []
-    cron_jobs: ClassVar[list[Any]] = [cron(scheduler_heartbeat, second=0, run_at_startup=False)]
+    cron_jobs: ClassVar[list[Any]] = [
+        cron(scheduler_heartbeat, second=0, run_at_startup=False),
+        # quality rating + pending template statuses, every 15 minutes (02 §4.4)
+        cron(campaign_housekeeping, minute={0, 15, 30, 45}, second=30, run_at_startup=False),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = redis_settings()
