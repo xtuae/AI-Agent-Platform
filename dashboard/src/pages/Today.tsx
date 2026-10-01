@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
+import { Link } from "react-router";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Tile } from "@/components/ui/tile";
 import { ErrorNote, PageTitle, Spinner, StatusDot } from "@/components/ui/misc";
@@ -20,6 +21,7 @@ function SpendTile({ spend }: { spend: Today["spend"] }) {
       <Tile
         label="Message spend this month"
         value="Borne by HMH Labz"
+        to="/costs"
         sub={
           <>
             {aed(spend.meta_cost_aed)} of WhatsApp charges covered
@@ -32,29 +34,31 @@ function SpendTile({ spend }: { spend: Today["spend"] }) {
   const pct = spend.pct_of_cap ?? 0;
   const tone = pct >= 100 ? "var(--dot-bad)" : pct >= 80 ? "var(--dot-warn)" : "var(--series)";
   return (
-    <Card className="h-full p-4">
-      <p className="text-sm text-ink-2">Message spend this month</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{aed(spend.meta_cost_aed)}</p>
-      {spend.cap_aed ? (
-        <>
-          <div
-            className="mt-2 h-1.5 overflow-hidden rounded-full bg-accent/15"
-            role="meter"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(pct, 100)}
-            aria-label="Share of monthly cap used"
-          >
-            <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: tone }} />
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            {pct}% of the {aed(spend.cap_aed)} cap
-          </p>
-        </>
-      ) : (
-        <p className="mt-1 text-xs text-muted">No monthly cap set</p>
-      )}
-    </Card>
+    <Link to="/costs" className="block rounded-xl">
+      <Card className="h-full p-4 transition-colors hover:border-accent/40">
+        <p className="text-sm text-ink-2">Message spend this month</p>
+        <p className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{aed(spend.meta_cost_aed)}</p>
+        {spend.cap_aed ? (
+          <>
+            <div
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-accent/15"
+              role="meter"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.min(pct, 100)}
+              aria-label="Share of monthly cap used"
+            >
+              <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: tone }} />
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              {pct}% of the {aed(spend.cap_aed)} cap
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-muted">No monthly cap set</p>
+        )}
+      </Card>
+    </Link>
   );
 }
 
@@ -87,7 +91,12 @@ export function TodayPage() {
         {modules.map((m) =>
           m.TodayTiles && t.modules[m.key] !== undefined ? <m.TodayTiles key={m.key} data={t.modules[m.key]} today={t} /> : null,
         )}
-        <Tile label="Live chats" value={String(t.live_conversations)} sub={`${contactLabel} who wrote in the last 24 h`} to="/conversations" />
+        <Tile
+          label="Live chats"
+          value={String(t.live_conversations)}
+          sub={`${contactLabel} who wrote in the last 24 h`}
+          to="/conversations"
+        />
         <Tile
           label="Needs a person"
           value={String(t.awaiting_human)}
@@ -115,13 +124,13 @@ export function TodayPage() {
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {modules.map((m) =>
-          m.TodayChart && t.modules[m.key] !== undefined ? <m.TodayChart key={m.key} data={t.modules[m.key]} /> : null,
-        )}
+        {modules.map((m) => (m.TodayChart && t.modules[m.key] !== undefined ? <m.TodayChart key={m.key} data={t.modules[m.key]} /> : null))}
         <Card>
           <CardHeader
             title="Message spend this month"
-            subtitle={t.spend.borne_by_hmh ? "Borne by HMH Labz — shown so you can see the cost" : "Cumulative WhatsApp charges against your cap"}
+            subtitle={
+              t.spend.borne_by_hmh ? "Borne by HMH Labz — shown so you can see the cost" : "Cumulative WhatsApp charges against your cap"
+            }
           />
           <Suspense fallback={<div className="h-[180px]" />}>
             <SpendChart spend={t.spend} points={t.spend_by_day} />

@@ -38,6 +38,7 @@ from api.db.models import (
     Listing,
     Message,
     MessageTemplate,
+    OptinLink,
     Order,
     Product,
     TenantChannel,
@@ -45,8 +46,10 @@ from api.db.models import (
     TenantUser,
     UsageDaily,
 )
+from api.metering import record_usage
 from api.modules import admin as modules_admin
-from api.tests.conftest import DashHarness, TenantPair, make_channel, wamid
+from api.optin.service import new_code, record_visit
+from api.tests.conftest import DEFAULT_PASSWORD, DashHarness, TenantPair, make_channel, wamid
 
 B_MARK = "BSECRET"
 
@@ -1042,6 +1045,155 @@ def _transition(action: str) -> Case:
 
 for _action in ("approve", "start", "pause", "resume", "cancel"):
     case("POST", f"{C}/{{campaign_id}}/{_action}")(_transition(_action))
+
+
+# ---------------------------------------------------------------- Phase 5: opt-in links, costs
+
+OPT = "/api/v1/optin"
+LINK_BODY = {
+    "label": "Van",
+    "source": "qr_van",
+    "heading": "Offers on WhatsApp",
+    "wording": "Yes, send me offers on WhatsApp. Reply STOP to stop.",
+    "prefill": "Yes please",
+}
+
+
+async def _b_link(h: DashHarness, w: World) -> OptinLink:
+    async with h.db.platform_session() as s:
+        link = OptinLink(
+            tenant_id=w.b.tenant,
+            code=new_code(),
+            label=B_MARK,
+            source="qr_van",
+            heading=B_MARK,
+            wording=f"{B_MARK} consent wording for offers on WhatsApp.",
+            prefill=B_MARK,
+        )
+        s.add(link)
+    async with h.db.tenant_session(w.b.tenant) as s:
+        await record_visit(s, link)
+    return link
+
+
+async def _b_link_state(h: DashHarness, link_id: uuid.UUID) -> tuple[str, str, bool]:
+    async with h.db.platform_session() as s:
+        link = await s.get(OptinLink, link_id)
+    assert link is not None
+    return link.label, link.wording, link.is_active
+
+
+@case("GET", f"{OPT}/links")
+async def _optin_links(h: DashHarness, w: World) -> None:
+    await _b_link(h, w)
+    body = await get_clean(h, w, f"{OPT}/links")
+    assert body["links"] == []
+
+
+@case("GET", f"{OPT}/defaults")
+async def _optin_defaults(h: DashHarness, w: World) -> None:
+    await get_clean(h, w, f"{OPT}/defaults")
+
+
+@case("POST", f"{OPT}/links")
+async def _optin_create(h: DashHarness, w: World) -> None:
+    r = await h.client.post(
+        f"{OPT}/links", headers=w.headers, json={**LINK_BODY, "tenant_id": str(w.b.tenant)}
+    )
+    assert r.status_code == 422
+    r = await h.client.post(f"{OPT}/links", headers=w.headers, json=LINK_BODY)
+    assert r.status_code == 201
+    async with h.db.platform_session() as s:
+        link = await s.get(OptinLink, uuid.UUID(r.json()["id"]))
+    assert link is not None
+    assert link.tenant_id == w.a.tenant
+
+
+@case("PATCH", f"{OPT}/links/{{link_id}}")
+async def _optin_patch(h: DashHarness, w: World) -> None:
+    link = await _b_link(h, w)
+    before = await _b_link_state(h, link.id)
+    r = await h.client.patch(f"{OPT}/links/{link.id}", headers=w.headers, json={"is_active": False})
+    assert r.status_code == 404
+    assert_clean(r.json(), w)
+    assert await _b_link_state(h, link.id) == before
+
+
+@case("GET", f"{OPT}/links/{{link_id}}/qr")
+async def _optin_qr(h: DashHarness, w: World) -> None:
+    link = await _b_link(h, w)
+    r = await h.client.get(f"{OPT}/links/{link.id}/qr", headers=w.headers)
+    assert r.status_code == 404
+    assert link.code not in r.text
+
+
+@case("GET", "/api/v1/costs")
+async def _costs(h: DashHarness, w: World) -> None:
+    day = datetime.now(UTC)
+    async with h.db.tenant_session(w.b.tenant) as s:
+        await record_usage(
+            s, w.b.tenant, at=day, msgs_out=1, category="marketing", meta_cost_aed=Decimal("777")
+        )
+    body = await get_clean(h, w, "/api/v1/costs")
+    assert "777" not in json.dumps(body)
+
+
+# The console is HMH Labz's, not a tenant's: a tenant token (or tenant credentials) gets nowhere.
+P = "/api/v1/platform"
+
+
+def _console_refused(method: str, url: str, body: dict[str, Any] | None = None) -> Case:
+    async def run(h: DashHarness, w: World) -> None:
+        r = await h.client.request(method, url.format(tid=w.b.tenant), headers=w.headers, json=body)
+        assert r.status_code == 401, (url, r.status_code)
+        assert_clean(r.json(), w)
+
+    return run
+
+
+for _m, _path, _url, _body in (
+    ("GET", f"{P}/overview", f"{P}/overview", None),
+    ("GET", f"{P}/tenants/{{tenant_id}}", f"{P}/tenants/{{tid}}", None),
+    (
+        "POST",
+        f"{P}/tenants/{{tenant_id}}/statement/pull",
+        f"{P}/tenants/{{tid}}/statement/pull",
+        None,
+    ),
+    ("GET", f"{P}/reimbursements", f"{P}/reimbursements", None),
+    (
+        "POST",
+        f"{P}/reimbursements",
+        f"{P}/reimbursements",
+        {"tenant_id": "{tid}", "service_month": 1},
+    ),
+    ("GET", f"{P}/auth/me", f"{P}/auth/me", None),
+):
+    case(_m, _path)(_console_refused(_m, _url, _body))
+
+
+@case("POST", f"{P}/auth/login")
+async def _console_login(h: DashHarness, w: World) -> None:
+    async with h.db.platform_session() as s:
+        user = await s.get(TenantUser, w.a.user)
+    assert user is not None
+    r = await h.client.post(
+        f"{P}/auth/login",
+        json={"email": user.email, "password": DEFAULT_PASSWORD, "code": "123456"},
+    )
+    assert r.status_code == 401
+
+
+@case("POST", f"{P}/auth/refresh")
+async def _console_refresh(h: DashHarness, w: World) -> None:
+    r = await h.client.post(f"{P}/auth/refresh", headers={**w.headers, "x-hmh-csrf": "1"})
+    assert r.status_code == 401
+
+
+@case("POST", f"{P}/auth/logout")
+async def _console_logout(h: DashHarness, w: World) -> None:
+    r = await h.client.post(f"{P}/auth/logout", headers={**w.headers, "x-hmh-csrf": "1"})
+    assert r.status_code == 204  # nothing to end; harmless
 
 
 # ---------------------------------------------------------------- the tests

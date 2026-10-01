@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ApiError } from "./lib/api";
@@ -16,14 +16,25 @@ const queryClient = new QueryClient({
   },
 });
 
+// The platform console (admin.<domain>, or /console) is a separate chunk with its own staff sign-in;
+// tenant dashboards never load it. Which one runs never grants anything: the server checks tokens.
+const ConsoleApp = lazy(() => import("./console/ConsoleApp"));
+const isConsole = window.location.hostname.startsWith("admin.") || window.location.pathname.startsWith("/console");
+
 const root = document.getElementById("root");
 if (root) {
   createRoot(root).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        {isConsole ? (
+          <Suspense fallback={null}>
+            <ConsoleApp />
+          </Suspense>
+        ) : (
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        )}
       </QueryClientProvider>
     </StrictMode>,
   );

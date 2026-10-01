@@ -17,6 +17,7 @@ from arq.connections import RedisSettings
 from arq.typing import WorkerCoroutine
 
 from api.agents.turn import TurnRunner
+from api.billing.jobs import pull_meta_statements
 from api.config import get_settings
 from api.core.logging import configure_logging, get_logger
 from api.db.models import TenantChannel
@@ -118,6 +119,8 @@ class SchedulerSettings:
         cron(scheduler_heartbeat, second=0, run_at_startup=False),
         # quality rating + pending template statuses, every 15 minutes (02 §4.4)
         cron(campaign_housekeeping, minute={0, 15, 30, 45}, second=30, run_at_startup=False),
+        # Meta's own per-day charges, for reconciliation and the reimbursement ledger (Phase 5)
+        cron(pull_meta_statements, hour=4, minute=30, second=0, run_at_startup=False),
     ]
     on_startup = startup
     on_shutdown = shutdown

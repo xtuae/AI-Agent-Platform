@@ -87,6 +87,17 @@ class Settings(BaseSettings):
     login_failure_window_s: int = Field(default=900, ge=60)
     stream_heartbeat_s: float = Field(default=15.0, gt=0)
 
+    # --- opt-in consent pages and the platform console (Phase 5) ---
+    # Public origin of the /q/<code> consent pages (e.g. https://go.hmhagents.com); QR codes point
+    # here. Unset → the origin the dashboard request came in on.
+    optin_base_url: str | None = None
+    optin_rate_limit: int = Field(default=30, ge=1)  # "Continue" taps per client, per window
+    optin_rate_window_s: int = Field(default=600, ge=60)
+    # AED is pegged to the dollar; used to show LLM spend (billed in USD) next to AED figures.
+    usd_to_aed: Decimal = Decimal("3.6725")
+    platform_access_ttl_s: int = Field(default=900, ge=60, le=3600)
+    platform_session_ttl_s: int = Field(default=12 * 3600, ge=900)  # console sign-in lifetime
+
     arq_queue_name: str = "arq:queue"
     arq_scheduler_queue_name: str = "arq:scheduler"
 

@@ -12,6 +12,7 @@ import { useAuth, useCan } from "@/lib/auth";
 import { aed, ago, dateLabel } from "@/lib/format";
 import type { Settings, TeamMember } from "@/lib/types";
 import { useModules } from "@/modules";
+import { OptinLinks } from "./OptinLinks";
 
 const DAYS = [
   ["sat", "Saturday"],
@@ -37,6 +38,7 @@ export default function SettingsPage() {
       {!isAdmin ? <p className="text-sm text-muted">Only an admin can change these settings.</p> : null}
       <BusinessSettings />
       {modules.map((m) => (m.SettingsSection ? <m.SettingsSection key={m.key} /> : null))}
+      <OptinLinks />
       {isAdmin ? <Team /> : null}
       <Password />
     </div>
@@ -81,7 +83,11 @@ function BusinessSettings() {
     <Card>
       <CardHeader
         title="Business"
-        subtitle={s.data.meta_charges_borne_by_us_until ? `WhatsApp charges borne by HMH Labz until ${dateLabel(s.data.meta_charges_borne_by_us_until)}` : undefined}
+        subtitle={
+          s.data.meta_charges_borne_by_us_until
+            ? `WhatsApp charges borne by HMH Labz until ${dateLabel(s.data.meta_charges_borne_by_us_until)}`
+            : undefined
+        }
       />
       <form
         className="space-y-5 p-4"
@@ -99,16 +105,33 @@ function BusinessSettings() {
               <div key={k} className="grid grid-cols-[1fr_auto] items-center gap-2 text-sm sm:grid-cols-[6.5rem_auto_1fr]">
                 <span>{name}</span>
                 <label className="flex items-center gap-1.5 text-ink-2">
-                  <input type="checkbox" className="size-4" checked={v.closed} onChange={(e) => setHours({ ...hours, [k]: { ...v, closed: e.target.checked } })} />
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={v.closed}
+                    onChange={(e) => setHours({ ...hours, [k]: { ...v, closed: e.target.checked } })}
+                  />
                   Closed
                 </label>
                 {v.closed ? (
                   <span className="hidden sm:block" />
                 ) : (
                   <div className="col-span-2 flex items-center gap-1.5 sm:col-span-1">
-                    <Input type="time" aria-label={`${name} opens`} className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none" value={v.from} onChange={(e) => setHours({ ...hours, [k]: { ...v, from: e.target.value } })} />
+                    <Input
+                      type="time"
+                      aria-label={`${name} opens`}
+                      className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+                      value={v.from}
+                      onChange={(e) => setHours({ ...hours, [k]: { ...v, from: e.target.value } })}
+                    />
                     <span className="text-muted">–</span>
-                    <Input type="time" aria-label={`${name} closes`} className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none" value={v.to} onChange={(e) => setHours({ ...hours, [k]: { ...v, to: e.target.value } })} />
+                    <Input
+                      type="time"
+                      aria-label={`${name} closes`}
+                      className="h-9 min-w-0 flex-1 sm:w-auto sm:flex-none"
+                      value={v.to}
+                      onChange={(e) => setHours({ ...hours, [k]: { ...v, to: e.target.value } })}
+                    />
                   </div>
                 )}
               </div>
@@ -116,7 +139,13 @@ function BusinessSettings() {
           })}
         </fieldset>
         <Field label="Escalation number" hint="Gets a WhatsApp alert when the agent hands a chat to a person">
-          <Input inputMode="tel" disabled={!isAdmin} value={escalation} onChange={(e) => setEscalation(e.target.value)} placeholder="050 123 4567" />
+          <Input
+            inputMode="tel"
+            disabled={!isAdmin}
+            value={escalation}
+            onChange={(e) => setEscalation(e.target.value)}
+            placeholder="050 123 4567"
+          />
         </Field>
         <p className="text-sm text-ink-2">
           Monthly message cap: {s.data.monthly_message_cap_aed ? aed(s.data.monthly_message_cap_aed) : "none"}{" "}
@@ -223,7 +252,10 @@ function Team() {
 
 function AddMember({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ email: "", name: "", role: "agent" as Role, password: "" });
-  const save = useMutation({ mutationFn: () => api<TeamMember>("/team", { method: "POST", body: { ...f, name: f.name || null } }), onSuccess: onSaved });
+  const save = useMutation({
+    mutationFn: () => api<TeamMember>("/team", { method: "POST", body: { ...f, name: f.name || null } }),
+    onSuccess: onSaved,
+  });
   return (
     <Sheet
       open
@@ -280,10 +312,20 @@ function Password() {
         }}
       >
         <Field label="Current password">
-          <Input type="password" autoComplete="current-password" value={f.current_password} onChange={(e) => setF({ ...f, current_password: e.target.value })} />
+          <Input
+            type="password"
+            autoComplete="current-password"
+            value={f.current_password}
+            onChange={(e) => setF({ ...f, current_password: e.target.value })}
+          />
         </Field>
         <Field label="New password" hint="At least 12 characters; signs out your other devices">
-          <Input type="password" autoComplete="new-password" value={f.new_password} onChange={(e) => setF({ ...f, new_password: e.target.value })} />
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={f.new_password}
+            onChange={(e) => setF({ ...f, new_password: e.target.value })}
+          />
         </Field>
         <Button type="submit" disabled={save.isPending || f.new_password.length < 12 || !f.current_password}>
           Change

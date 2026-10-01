@@ -9,7 +9,13 @@ from __future__ import annotations
 from typing import Final, Literal
 
 Kind = Literal[
-    "optout_confirmed", "complaint_ack", "greeting", "smalltalk_ack", "holding", "handover"
+    "optout_confirmed",
+    "optin_confirmed",
+    "complaint_ack",
+    "greeting",
+    "smalltalk_ack",
+    "holding",
+    "handover",
 ]
 Language = Literal["en", "ar", "ar-latn"]
 
@@ -24,6 +30,11 @@ _TEXT: Final[dict[str, dict[str, str]]] = {
         "en": "Done — you won't receive offers or promotional messages from {business_name} any more. You can still message us here any time for orders or help.",
         "ar": "تم — لن تصلك بعد الآن عروض أو رسائل ترويجية من {business_name}. ويمكنك مراسلتنا هنا في أي وقت للطلبات أو المساعدة.",
         "ar-latn": "Tamam — ma 7a yewsalak offers aw promotional messages men {business_name} ba3d el yom. Fik tebe3atelna hon ay wa2t lal orders aw el mosa3ade.",
+    },
+    "optin_confirmed": {
+        "en": "Thank you — you're now subscribed to offers and updates from {business_name}. Reply STOP at any time to unsubscribe.",
+        "ar": "شكراً لك — تم اشتراكك في عروض وتحديثات {business_name}. أرسل STOP في أي وقت لإلغاء الاشتراك.",
+        "ar-latn": "Shukran — sar 3andak eshtirak bel offers w el updates men {business_name}. Ba3at STOP ay wa2t la tlghi el eshtirak.",
     },
     "complaint_ack": {
         "en": "I'm sorry about this. I've passed it to the {business_name} team and a person will get back to you here shortly.",

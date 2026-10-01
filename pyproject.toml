@@ -20,6 +20,9 @@ dependencies = [
     "jinja2>=3.1",
     "fastembed>=0.4",
     "pyjwt>=2.9,<3",
+    "openpyxl>=3.1,<4",
+    "pyotp>=2.9,<3",
+    "segno>=1.6,<2",
 ]
 
 [dependency-groups]
@@ -30,6 +33,7 @@ dev = [
     "asgi-lifespan>=2.1",
     "mypy>=1.13",
     "ruff>=0.7",
+    "types-openpyxl>=3.1.5.20260827",
 ]
 
 [build-system]
@@ -60,7 +64,9 @@ ignore = [
 "api/agents/canned.py" = ["E501"]  # customer-facing copy: one reviewable line per language
 "api/modules/*/module.py" = ["E501"]  # spec prompt text, kept byte-exact
 "api/agents/prompts/compose.py" = ["E501"]
-"api/tests/test_conversations.py" = ["E501"]  # scripted model replies read best on one line
+"api/tests/test_conversations.py" = ["E501"]
+"api/onboarding/*.py" = ["RUF001"]  # Arabic letters in header synonyms and name folding
+"api/tests/test_import_excel.py" = ["RUF001", "E501", "DTZ001"]  # scripted model replies read best on one line
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

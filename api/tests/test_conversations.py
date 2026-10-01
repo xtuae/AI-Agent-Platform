@@ -45,6 +45,7 @@ from api.db.models import (
     Customer,
     Message,
     MessageTemplate,
+    OptinLink,
     Order,
     Product,
     Tenant,
@@ -60,6 +61,7 @@ from api.meta.client import MetaClient
 from api.metering import usage_day
 from api.modules.catalog import tools as get_products
 from api.modules.registry import enabled_of
+from api.optin import service as optin
 from api.tests.conftest import WATER_PRESET, RecordingEnqueuer, make_tenant, meta_id, wamid
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.payloads import WebhookPayload
@@ -909,6 +911,76 @@ async def test_a_campaign_reply_reaches_the_agent_with_its_context(shop: Shop) -
         camp2 = await s.get(Campaign, camp_id)
     assert camp2 is not None
     assert camp2.reply_count == 1
+
+
+async def _consent_ref(shop: Shop, *, age: timedelta = timedelta(0)) -> tuple[str, str]:
+    """A consent page for the shop, and one tap on it. Returns (prefilled message, wording)."""
+    wording = "Yes, I'd like offers and updates from Test Water Co on WhatsApp. Reply STOP to stop."
+    async with shop.db.platform_session() as s:
+        link = OptinLink(
+            tenant_id=shop.tenant_id,
+            code=optin.new_code(),
+            label="Van 3",
+            source="qr_van",
+            heading="Offers on WhatsApp",
+            wording=wording,
+            prefill="Yes, please send me offers",
+        )
+        s.add(link)
+    async with shop.db.tenant_session(shop.tenant_id) as s:
+        visit = await optin.record_visit(s, link)
+        visit.created_at = datetime.now(UTC) - age
+    return optin.prefilled(link, visit.token), wording
+
+
+async def test_consent_page_message_opts_in_with_evidence_and_no_model_call(shop: Shop) -> None:
+    text, wording = await _consent_ref(shop)
+    llm = ScriptedLLM("unused", "en", [])  # even in LIVE mode: consent is deterministic
+    await shop.receive(NEW, text)
+    assert await shop.run_turns(llm) == ["opted_in"]
+    assert llm.calls == []
+    c = await shop.customer(NEW)
+    assert c.opt_in_status == "opted_in"
+    assert c.source == "qr_van"
+    ev = c.opt_in_evidence or {}
+    assert ev["wording_shown"] == wording
+    assert ev["source"] == "qr_van"
+    assert ev["method"] == "consent_page"
+    assert ev["wamid"]
+    assert datetime.fromisoformat(ev["shown_at"]) <= datetime.fromisoformat(ev["at"])
+    reply = shop.meta.texts[-1]
+    assert "automated assistant" in reply  # first message of a new conversation: disclosure
+    assert "subscribed" in reply
+    assert "STOP" in reply
+
+
+async def test_a_consent_ref_works_once_and_expires(shop: Shop) -> None:
+    text, _ = await _consent_ref(shop)
+    await shop.receive(NEW, text)
+    assert await shop.run_turns(ScriptedLLM("unused", "en", [])) == ["opted_in"]
+    # the same ref sent from another number is just a message: the agent handles it, no opt-in
+    llm = shop.brain("smalltalk", "en")
+    await shop.receive(NO_BOOK, text)
+    assert await shop.run_turns(llm) == ["replied"]
+    assert (await shop.customer(NO_BOOK)).opt_in_status == "pending"
+    # a ref older than a week is not honoured
+    old, _ = await _consent_ref(shop, age=timedelta(days=8))
+    await shop.receive(KNOWN, old)
+    assert await shop.run_turns(shop.brain("smalltalk", "en")) == ["replied"]
+    assert (await shop.customer(KNOWN)).opt_in_status == "pending"
+
+
+async def test_opted_out_customer_can_opt_back_in_through_a_consent_page(shop: Shop) -> None:
+    await shop.receive(KNOWN, "STOP")
+    assert await shop.run_turns(ScriptedLLM("unused", "en", [])) == ["opted_out"]
+    opted_out_at = (await shop.customer(KNOWN)).opt_out_at
+    text, _ = await _consent_ref(shop)
+    await shop.receive(KNOWN, text)
+    assert await shop.run_turns(ScriptedLLM("unused", "en", [])) == ["opted_in"]
+    c = await shop.customer(KNOWN)
+    assert (c.opt_in_status, c.opt_out_at) == ("opted_in", None)
+    assert opted_out_at is not None
+    assert (c.opt_in_evidence or {})["previous_opt_out_at"] == opted_out_at.isoformat()
 
 
 async def test_awaiting_human_suppresses_agent_but_not_stop(shop: Shop) -> None:

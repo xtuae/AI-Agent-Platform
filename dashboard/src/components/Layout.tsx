@@ -1,4 +1,4 @@
-import { Home, LogOut, MessagesSquare, MoreHorizontal, Settings, Users, type LucideIcon } from "lucide-react";
+import { Home, LogOut, MessagesSquare, MoreHorizontal, Receipt, Settings, Users, type LucideIcon } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router";
 import { logout } from "@/lib/api";
@@ -26,6 +26,7 @@ function useNav(): NavItem[] {
       ...modules.flatMap((m) => (m.nav ?? []).map((n) => ({ ...n, end: false }))),
       { to: "/conversations", label: "Chats", icon: MessagesSquare, end: false },
       { to: "/contacts", label: contactLabel, icon: Users, end: false },
+      { to: "/costs", label: "Costs", icon: Receipt, end: false },
       { to: "/settings", label: "Settings", icon: Settings, end: false },
     ],
     [modules, contactLabel],
@@ -37,7 +38,10 @@ const BOTTOM_SLOTS = 5;
 function LiveBadge() {
   const live = useLive();
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted" title={live ? "Updates arrive as they happen" : "Refreshing every 15 seconds"}>
+    <span
+      className="inline-flex items-center gap-1.5 text-xs text-muted"
+      title={live ? "Updates arrive as they happen" : "Refreshing every 15 seconds"}
+    >
       <span className={cn("size-2 rounded-full", live ? "bg-[var(--dot-good)]" : "bg-line")} aria-hidden />
       {live ? "Live" : "Every 15 s"}
     </span>

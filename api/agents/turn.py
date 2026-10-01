@@ -2,6 +2,7 @@
 
  1  load the message under its tenant; voice note → download + transcribe → store transcript
  2  explicit STOP → opt out + confirmation, NO model call (absolute; runs even mid-handover)
+    consent-page ref ("… (Ref ABCD2345)") → opt in with evidence + confirmation, NO model call
  3  debounce: wait briefly; if a newer inbound message exists, stop — its job answers both
  4  per-conversation Redis lock (one turn at a time per conversation)
  5  conversation awaiting_human → store only, no agent reply
@@ -56,6 +57,8 @@ from api.llm.transcribe import Transcriber
 from api.meta.client import MetaAPIError, MetaClient
 from api.meta.outbound import LLMUsage, send_text_reply
 from api.metering import record_usage
+from api.optin import service as optin
+from api.optin.service import find_ref
 from api.webhooks.ingest import Enqueuer
 
 log = get_logger(__name__)
@@ -63,6 +66,8 @@ log = get_logger(__name__)
 Outcome = Literal[
     "replied",
     "opted_out",
+    "opted_in",
+    "no_claim",
     "escalated",
     "suppressed",
     "superseded",
@@ -202,6 +207,18 @@ class TurnRunner:
                 ),
                 job_try,
             )
+
+        # 2b. the prefilled message from a consent page (api/optin) — deterministic too
+        if text and find_ref(text):
+            outcome = await self._locked(
+                conversation_id,
+                lambda: self._consent(
+                    tenant_id, channel, conversation_id, customer_id, message_id, wamid, text, meter
+                ),
+                job_try,
+            )
+            if outcome != "no_claim":
+                return outcome
 
         # 3. debounce, then give way to a newer message
         if self._settings.turn_debounce_s > 0:
@@ -478,6 +495,39 @@ class TurnRunner:
         )
         await self._handled(persona.tenant_id, [message_id])
         return result
+
+    async def _consent(
+        self,
+        tenant_id: uuid.UUID,
+        channel: TenantChannel,
+        conversation_id: uuid.UUID,
+        customer_id: uuid.UUID,
+        message_id: uuid.UUID,
+        wamid: str | None,
+        text: str,
+        meter: TurnMeter,
+    ) -> Outcome:
+        now = datetime.now(UTC)
+        async with self._db.tenant_session(tenant_id) as s:
+            got = await optin.claim(s, text=text, customer_id=customer_id, wamid=wamid, now=now)
+            if got is None:
+                return "no_claim"  # unknown, used or expired ref: an ordinary message
+            conv = await s.get(Conversation, conversation_id)
+            new_conversation = conv is not None and await is_new_conversation(s, conv)
+        persona = await load_persona(self._db, tenant_id)
+        log.info(
+            "customer_opted_in",
+            tenant_id=str(tenant_id),
+            wamid=wamid or "",
+            method="consent_page",
+            already=got.already,
+        )
+        await self._send_canned(
+            persona, channel, conversation_id, "optin_confirmed", got.language, new_conversation,
+            meter,
+        )  # fmt: skip
+        await self._handled(tenant_id, [message_id])
+        return "opted_in"
 
     async def _handled(self, tenant_id: uuid.UUID, message_ids: list[uuid.UUID]) -> None:
         async with self._db.tenant_session(tenant_id) as s:

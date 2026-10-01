@@ -1,6 +1,7 @@
-"""Meta Graph API client: sends, media, templates (create / list / status) and the phone's
-quality rating. Never used from the webhook request handler (it must answer in < 200 ms): sends
-run in workers; template submission and syncing also run from dashboard requests.
+"""Meta Graph API client: sends, media, templates (create / list / status), the phone's
+quality rating and the WABA's pricing analytics (Meta's own per-day message charges). Never used
+from the webhook request handler (it must answer in < 200 ms): sends run in workers; template
+submission and syncing also run from dashboard requests.
 
 * Every request has an explicit timeout.
 * Retries 429 and 5xx with exponential backoff + jitter, honouring Retry-After.
@@ -113,6 +114,32 @@ class _CreatedTemplate(_Model):
 class PhoneStatus(_Model):
     quality_rating: str | None = None  # GREEN | YELLOW | RED | UNKNOWN
     messaging_limit_tier: str | None = None  # TIER_250 | TIER_1K | TIER_10K | TIER_100K | …
+
+
+class PricingPoint(_Model):
+    """One WABA pricing-analytics data point: a day's charged volume and cost for a category,
+    country and pricing type, in the WABA's currency."""
+
+    start: int  # unix seconds, UTC day start
+    end: int
+    country: str | None = None
+    pricing_category: str | None = None
+    pricing_type: str | None = None
+    volume: int = 0
+    cost: float = 0.0
+
+
+class _PricingData(_Model):
+    data_points: list[PricingPoint] = []
+
+
+class _PricingAnalytics(_Model):
+    data: list[_PricingData] = []
+
+
+class _PricingResponse(_Model):
+    currency: str | None = None
+    pricing_analytics: _PricingAnalytics | None = None
 
 
 @dataclass(frozen=True)
@@ -288,6 +315,29 @@ class MetaClient:
             return _TemplateList.model_validate(resp.json()).data
         except (ValidationError, ValueError) as exc:
             raise MetaAPIError(resp.status_code, "unexpected template response shape") from exc
+
+    async def pricing_analytics(
+        self, waba_id: str, start: int, end: int
+    ) -> tuple[str | None, list[PricingPoint]]:
+        """Meta's charges per UTC day, category, country and pricing type in [start, end) (unix
+        seconds), and the WABA's billing currency."""
+        field = (
+            f"pricing_analytics.start({start}).end({end}).granularity(DAILY)"
+            '.dimensions(["PRICING_CATEGORY","PRICING_TYPE","COUNTRY"])'
+        )
+        resp = await self._request(
+            "GET",
+            f"{self._root}/{waba_id}",
+            params={"fields": f"currency,{field}"},
+            idempotent=True,
+        )
+        try:
+            body = _PricingResponse.model_validate(resp.json())
+        except (ValidationError, ValueError) as exc:
+            raise MetaAPIError(resp.status_code, "unexpected pricing analytics shape") from exc
+        points = [p for d in (body.pricing_analytics.data if body.pricing_analytics else [])
+                  for p in d.data_points]  # fmt: skip
+        return body.currency, points
 
     # ------------------------------------------------------------ transport
 

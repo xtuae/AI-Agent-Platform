@@ -43,6 +43,7 @@ class Tenant(Base):
     service_start: Mapped[date | None]
     free_months_until: Mapped[date | None]
     meta_charges_borne_by_us_until: Mapped[date | None]
+    monthly_fee_aed: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))  # margin view
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
@@ -123,7 +124,12 @@ class PlatformUser(Base):
     email: Mapped[str] = mapped_column(Text, unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(Text)
+    # base32; required to sign in (the console sees every tenant). Never logged or returned.
     totp_secret: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    last_login_at: Mapped[datetime | None]
 
     def __repr__(self) -> str:
         return f"PlatformUser(id={self.id}, role={self.role})"
@@ -183,3 +189,59 @@ class AuthRefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"AuthRefreshToken(id={self.id}, user_id={self.user_id})"
+
+
+class OptinLink(Base):
+    """A tenant's consent page behind a QR code / short URL (/q/<code>). Platform table: the
+    public page resolves `code` to a tenant before any tenant context exists."""
+
+    __tablename__ = "optin_links"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "id"),
+        CheckConstraint("code ~ '^[A-Za-z0-9]{6,16}$'", name="code"),
+        CheckConstraint("source ~ '^[a-z][a-z0-9_]{1,31}$'", name="source"),
+        CheckConstraint("language in ('en','ar')", name="language"),
+        CheckConstraint("char_length(wording) BETWEEN 20 AND 1000", name="wording"),
+        CheckConstraint("char_length(prefill) BETWEEN 2 AND 200", name="prefill"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="RESTRICT"), index=True
+    )
+    code: Mapped[str] = mapped_column(Text, unique=True)
+    label: Mapped[str] = mapped_column(Text)  # "Van 3 sticker" — for the team, never shown
+    source: Mapped[str] = mapped_column(Text)  # customers.source / evidence source: 'qr_van'…
+    language: Mapped[str] = mapped_column(Text, server_default=text("'en'"))
+    heading: Mapped[str] = mapped_column(Text)
+    wording: Mapped[str] = mapped_column(Text)  # the exact consent wording shown
+    prefill: Mapped[str] = mapped_column(Text)  # the WhatsApp message; the code is appended
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_by: Mapped[str | None] = mapped_column(Text)
+
+
+class Reimbursement(Base):
+    """HMH Labz paid a tenant back for Meta charges in one borne-by-HMH service month."""
+
+    __tablename__ = "reimbursements"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "service_month"),
+        CheckConstraint("service_month >= 1", name="month"),
+        CheckConstraint("amount_aed >= 0", name="amount"),
+        CheckConstraint("basis in ('meta_statement','metered')", name="basis"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="RESTRICT"), index=True
+    )
+    service_month: Mapped[int] = mapped_column(Integer)
+    period_start: Mapped[date]
+    period_end: Mapped[date]  # inclusive
+    amount_aed: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    basis: Mapped[str] = mapped_column(Text)
+    reference: Mapped[str | None] = mapped_column(Text)
+    paid_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    recorded_by: Mapped[str] = mapped_column(Text)

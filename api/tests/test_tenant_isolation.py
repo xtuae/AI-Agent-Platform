@@ -26,6 +26,8 @@ PLATFORM_TABLES_WITH_TENANT_ID = {
     "tenant_settings",
     "auth_refresh_tokens",  # looked up by cookie before a tenant is known (Phase 3)
     "tenant_modules",  # which modules a tenant has: read before any tenant session opens
+    "optin_links",  # a public QR page resolves its code to a tenant before any context (Phase 5)
+    "reimbursements",  # HMH Labz's own ledger of what it paid back, read by the console
 }
 
 

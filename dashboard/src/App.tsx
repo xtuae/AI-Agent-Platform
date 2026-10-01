@@ -12,6 +12,7 @@ import { TodayPage } from "./pages/Today";
 const ConversationsPage = lazy(() => import("./pages/Conversations"));
 const ContactsPage = lazy(() => import("./pages/Contacts"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
+const CostsPage = lazy(() => import("./pages/Costs"));
 
 function Loading() {
   return (
@@ -46,6 +47,7 @@ export function App() {
             <Route path="conversations/:id" element={<ConversationsPage />} />
             <Route path="contacts" element={<ContactsPage />} />
             <Route path="customers" element={<Navigate to="/contacts" replace />} />
+            <Route path="costs" element={<CostsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

@@ -9,8 +9,8 @@ const api = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
 export default defineConfig({
   plugins: [react()],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
-  server: { port: 5173, proxy: { "/api": { target: api, changeOrigin: false } } },
-  preview: { port: 4173, proxy: { "/api": { target: api, changeOrigin: false } } },
+  server: { port: 5173, proxy: { "/api": { target: api, changeOrigin: false }, "/q/": { target: api, changeOrigin: false } } },
+  preview: { port: 4173, proxy: { "/api": { target: api, changeOrigin: false }, "/q/": { target: api, changeOrigin: false } } },
   build: { outDir: "dist", emptyOutDir: true, sourcemap: false, target: "es2022" },
   test: { environment: "jsdom", include: ["src/**/*.test.ts"] },
 });

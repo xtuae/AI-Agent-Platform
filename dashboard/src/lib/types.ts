@@ -190,3 +190,68 @@ export interface TeamMember {
   created_at: string;
   last_login_at: string | null;
 }
+
+// ---- Costs (Phase 5)
+
+export type PricingCategory = "marketing" | "utility" | "service" | "authentication";
+export type ReconStatus = "ok" | "check" | "not_pulled" | "not_comparable";
+
+export interface ReconLine {
+  key: string; // category, ISO day, or "total"
+  ours_count: number;
+  meta_count: number | null;
+  ours_aed: string;
+  meta_aed: string | null;
+  diff_aed: string | null;
+  status: ReconStatus;
+}
+
+export interface Statement {
+  pulled_at: string | null;
+  complete: boolean;
+  currency: string | null;
+  meta_total_native: string | null;
+  total: ReconLine | null;
+  categories: ReconLine[];
+  days: ReconLine[];
+}
+
+export interface Costs {
+  month: string;
+  months: string[];
+  cap_aed: string | null;
+  total_aed: string;
+  pct_of_cap: number | null;
+  borne_aed: string;
+  due_aed: string;
+  borne_until: string | null;
+  categories: { category: PricingCategory; count: number; cost_aed: string }[];
+  days: {
+    day: string;
+    msgs_in: number;
+    msgs_out: number;
+    counts: Record<PricingCategory, number>;
+    costs: Record<PricingCategory, string>;
+    total_aed: string;
+    borne_by_hmh: boolean;
+  }[];
+  statement: Statement;
+}
+
+// ---- Opt-in consent pages (Phase 5)
+
+export interface OptinLink {
+  id: string;
+  code: string;
+  url: string;
+  label: string;
+  source: string;
+  language: "en" | "ar";
+  heading: string;
+  wording: string;
+  prefill: string;
+  is_active: boolean;
+  created_at: string;
+  visits: number;
+  opted_in: number;
+}

@@ -37,6 +37,10 @@ _ADDITIVE = (
     "service_count",
     "authentication_count",
     "meta_cost_aed",
+    "marketing_cost_aed",
+    "utility_cost_aed",
+    "service_cost_aed",
+    "authentication_cost_aed",
     "llm_prompt_tokens",
     "llm_completion_tokens",
     "llm_cost_usd",
@@ -71,6 +75,10 @@ async def record_usage(
         "service_count": 0,
         "authentication_count": 0,
         "meta_cost_aed": meta_cost_aed,
+        "marketing_cost_aed": Decimal(0),
+        "utility_cost_aed": Decimal(0),
+        "service_cost_aed": Decimal(0),
+        "authentication_cost_aed": Decimal(0),
         "llm_prompt_tokens": llm_prompt_tokens,
         "llm_completion_tokens": llm_completion_tokens,
         "llm_cost_usd": llm_cost_usd,
@@ -79,6 +87,9 @@ async def record_usage(
         if category not in _CATEGORY_COLUMN:
             raise ValueError(f"unknown pricing category {category!r}")
         values[_CATEGORY_COLUMN[category]] = 1
+        values[f"{category}_cost_aed"] = meta_cost_aed
+    elif meta_cost_aed:
+        raise ValueError("a Meta cost needs its pricing category")
 
     stmt = insert(UsageDaily).values(**values)
     stmt = stmt.on_conflict_do_update(

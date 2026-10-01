@@ -1,0 +1,831 @@
+{
+ "currency": "AED",
+ "pricing_analytics": {
+  "data": [
+   {
+    "data_points": [
+     {
+      "start": 1790812800,
+      "end": 1790899200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 7,
+      "cost": 0.98
+     },
+     {
+      "start": 1790812800,
+      "end": 1790899200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 6,
+      "cost": 0.348
+     },
+     {
+      "start": 1790812800,
+      "end": 1790899200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 8,
+      "cost": 0.0
+     },
+     {
+      "start": 1790899200,
+      "end": 1790985600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 1,
+      "cost": 0.14
+     },
+     {
+      "start": 1790899200,
+      "end": 1790985600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 4,
+      "cost": 0.232
+     },
+     {
+      "start": 1790899200,
+      "end": 1790985600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 11,
+      "cost": 0.0
+     },
+     {
+      "start": 1790985600,
+      "end": 1791072000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 8,
+      "cost": 1.12
+     },
+     {
+      "start": 1790985600,
+      "end": 1791072000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 2,
+      "cost": 0.116
+     },
+     {
+      "start": 1790985600,
+      "end": 1791072000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 14,
+      "cost": 0.0
+     },
+     {
+      "start": 1791072000,
+      "end": 1791158400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 2,
+      "cost": 0.28
+     },
+     {
+      "start": 1791072000,
+      "end": 1791158400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 7,
+      "cost": 0.406
+     },
+     {
+      "start": 1791072000,
+      "end": 1791158400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 6,
+      "cost": 0.0
+     },
+     {
+      "start": 1791158400,
+      "end": 1791244800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 9,
+      "cost": 1.26
+     },
+     {
+      "start": 1791158400,
+      "end": 1791244800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 5,
+      "cost": 0.29
+     },
+     {
+      "start": 1791158400,
+      "end": 1791244800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 9,
+      "cost": 0.0
+     },
+     {
+      "start": 1791244800,
+      "end": 1791331200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 43,
+      "cost": 6.02
+     },
+     {
+      "start": 1791244800,
+      "end": 1791331200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 3,
+      "cost": 0.174
+     },
+     {
+      "start": 1791244800,
+      "end": 1791331200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 12,
+      "cost": 0.0
+     },
+     {
+      "start": 1791331200,
+      "end": 1791417600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 10,
+      "cost": 1.4
+     },
+     {
+      "start": 1791331200,
+      "end": 1791417600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 1,
+      "cost": 0.058
+     },
+     {
+      "start": 1791331200,
+      "end": 1791417600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 15,
+      "cost": 0.0
+     },
+     {
+      "start": 1791417600,
+      "end": 1791504000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 4,
+      "cost": 0.56
+     },
+     {
+      "start": 1791417600,
+      "end": 1791504000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 6,
+      "cost": 0.348
+     },
+     {
+      "start": 1791417600,
+      "end": 1791504000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 7,
+      "cost": 0.0
+     },
+     {
+      "start": 1791504000,
+      "end": 1791590400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 11,
+      "cost": 1.54
+     },
+     {
+      "start": 1791504000,
+      "end": 1791590400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 4,
+      "cost": 0.232
+     },
+     {
+      "start": 1791504000,
+      "end": 1791590400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 10,
+      "cost": 0.0
+     },
+     {
+      "start": 1791590400,
+      "end": 1791676800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 5,
+      "cost": 0.7
+     },
+     {
+      "start": 1791590400,
+      "end": 1791676800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 2,
+      "cost": 0.116
+     },
+     {
+      "start": 1791590400,
+      "end": 1791676800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 13,
+      "cost": 0.0
+     },
+     {
+      "start": 1791676800,
+      "end": 1791763200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 12,
+      "cost": 1.68
+     },
+     {
+      "start": 1791676800,
+      "end": 1791763200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 7,
+      "cost": 0.406
+     },
+     {
+      "start": 1791676800,
+      "end": 1791763200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 5,
+      "cost": 0.0
+     },
+     {
+      "start": 1791763200,
+      "end": 1791849600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 6,
+      "cost": 0.84
+     },
+     {
+      "start": 1791763200,
+      "end": 1791849600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 5,
+      "cost": 0.29
+     },
+     {
+      "start": 1791763200,
+      "end": 1791849600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 8,
+      "cost": 0.0
+     },
+     {
+      "start": 1791849600,
+      "end": 1791936000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 3,
+      "cost": 0.174
+     },
+     {
+      "start": 1791849600,
+      "end": 1791936000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 11,
+      "cost": 0.0
+     },
+     {
+      "start": 1791936000,
+      "end": 1792022400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 7,
+      "cost": 0.98
+     },
+     {
+      "start": 1791936000,
+      "end": 1792022400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 1,
+      "cost": 0.058
+     },
+     {
+      "start": 1791936000,
+      "end": 1792022400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 14,
+      "cost": 0.0
+     },
+     {
+      "start": 1792022400,
+      "end": 1792108800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 1,
+      "cost": 0.14
+     },
+     {
+      "start": 1792022400,
+      "end": 1792108800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 6,
+      "cost": 0.348
+     },
+     {
+      "start": 1792022400,
+      "end": 1792108800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 6,
+      "cost": 0.0
+     },
+     {
+      "start": 1792108800,
+      "end": 1792195200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 8,
+      "cost": 1.12
+     },
+     {
+      "start": 1792108800,
+      "end": 1792195200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 4,
+      "cost": 0.232
+     },
+     {
+      "start": 1792108800,
+      "end": 1792195200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 9,
+      "cost": 0.0
+     },
+     {
+      "start": 1792195200,
+      "end": 1792281600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 2,
+      "cost": 0.28
+     },
+     {
+      "start": 1792195200,
+      "end": 1792281600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 2,
+      "cost": 0.116
+     },
+     {
+      "start": 1792195200,
+      "end": 1792281600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 12,
+      "cost": 0.0
+     },
+     {
+      "start": 1792281600,
+      "end": 1792368000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 9,
+      "cost": 1.26
+     },
+     {
+      "start": 1792281600,
+      "end": 1792368000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 7,
+      "cost": 0.406
+     },
+     {
+      "start": 1792281600,
+      "end": 1792368000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 15,
+      "cost": 0.0
+     },
+     {
+      "start": 1792368000,
+      "end": 1792454400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 3,
+      "cost": 0.42
+     },
+     {
+      "start": 1792368000,
+      "end": 1792454400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 5,
+      "cost": 0.29
+     },
+     {
+      "start": 1792368000,
+      "end": 1792454400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 7,
+      "cost": 0.0
+     },
+     {
+      "start": 1792454400,
+      "end": 1792540800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 50,
+      "cost": 7.0
+     },
+     {
+      "start": 1792454400,
+      "end": 1792540800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 3,
+      "cost": 0.174
+     },
+     {
+      "start": 1792454400,
+      "end": 1792540800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 10,
+      "cost": 0.0
+     },
+     {
+      "start": 1792540800,
+      "end": 1792627200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 4,
+      "cost": 0.56
+     },
+     {
+      "start": 1792540800,
+      "end": 1792627200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 1,
+      "cost": 0.058
+     },
+     {
+      "start": 1792540800,
+      "end": 1792627200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 13,
+      "cost": 0.0
+     },
+     {
+      "start": 1792627200,
+      "end": 1792713600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 11,
+      "cost": 1.54
+     },
+     {
+      "start": 1792627200,
+      "end": 1792713600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 6,
+      "cost": 0.348
+     },
+     {
+      "start": 1792627200,
+      "end": 1792713600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 5,
+      "cost": 0.0
+     },
+     {
+      "start": 1792713600,
+      "end": 1792800000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 5,
+      "cost": 0.7
+     },
+     {
+      "start": 1792713600,
+      "end": 1792800000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 4,
+      "cost": 0.232
+     },
+     {
+      "start": 1792713600,
+      "end": 1792800000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 8,
+      "cost": 0.0
+     },
+     {
+      "start": 1792800000,
+      "end": 1792886400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 12,
+      "cost": 1.68
+     },
+     {
+      "start": 1792800000,
+      "end": 1792886400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 2,
+      "cost": 0.116
+     },
+     {
+      "start": 1792800000,
+      "end": 1792886400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 11,
+      "cost": 0.0
+     },
+     {
+      "start": 1792886400,
+      "end": 1792972800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 6,
+      "cost": 0.84
+     },
+     {
+      "start": 1792886400,
+      "end": 1792972800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 7,
+      "cost": 0.406
+     },
+     {
+      "start": 1792886400,
+      "end": 1792972800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 14,
+      "cost": 0.0
+     },
+     {
+      "start": 1792972800,
+      "end": 1793059200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 5,
+      "cost": 0.29
+     },
+     {
+      "start": 1792972800,
+      "end": 1793059200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 6,
+      "cost": 0.0
+     },
+     {
+      "start": 1793059200,
+      "end": 1793145600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 7,
+      "cost": 0.98
+     },
+     {
+      "start": 1793059200,
+      "end": 1793145600,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 3,
+      "cost": 0.174
+     },
+     {
+      "start": 1793059200,
+      "end": 1793145600,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 9,
+      "cost": 0.0
+     },
+     {
+      "start": 1793145600,
+      "end": 1793232000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 1,
+      "cost": 0.14
+     },
+     {
+      "start": 1793145600,
+      "end": 1793232000,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 1,
+      "cost": 0.058
+     },
+     {
+      "start": 1793145600,
+      "end": 1793232000,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 12,
+      "cost": 0.0
+     },
+     {
+      "start": 1793232000,
+      "end": 1793318400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 8,
+      "cost": 1.12
+     },
+     {
+      "start": 1793232000,
+      "end": 1793318400,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 6,
+      "cost": 0.348
+     },
+     {
+      "start": 1793232000,
+      "end": 1793318400,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 15,
+      "cost": 0.0
+     },
+     {
+      "start": 1793318400,
+      "end": 1793404800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 2,
+      "cost": 0.28
+     },
+     {
+      "start": 1793318400,
+      "end": 1793404800,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 4,
+      "cost": 0.232
+     },
+     {
+      "start": 1793318400,
+      "end": 1793404800,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 7,
+      "cost": 0.0
+     },
+     {
+      "start": 1793404800,
+      "end": 1793491200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "MARKETING",
+      "volume": 9,
+      "cost": 1.26
+     },
+     {
+      "start": 1793404800,
+      "end": 1793491200,
+      "country": "AE",
+      "pricing_type": "REGULAR",
+      "pricing_category": "UTILITY",
+      "volume": 2,
+      "cost": 0.116
+     },
+     {
+      "start": 1793404800,
+      "end": 1793491200,
+      "country": "AE",
+      "pricing_type": "FREE_CUSTOMER_SERVICE",
+      "pricing_category": "SERVICE",
+      "volume": 10,
+      "cost": 0.0
+     }
+    ]
+   }
+  ]
+ },
+ "id": "123456789012345"
+}

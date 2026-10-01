@@ -3,10 +3,13 @@
 from api.db.models.conversations import Conversation, Message
 from api.db.models.customers import Customer
 from api.db.models.knowledge import KnowledgeChunk
-from api.db.models.metering import AuditLog, UsageDaily
+from api.db.models.metering import AuditLog, MetaStatementLine, MetaStatementMonth, UsageDaily
+from api.db.models.optin import OptinVisit
 from api.db.models.platform import (
     AuthRefreshToken,
+    OptinLink,
     PlatformUser,
+    Reimbursement,
     Tenant,
     TenantChannel,
     TenantModule,
@@ -51,9 +54,14 @@ __all__ = [
     "Message",
     "MessageTemplate",
     "MetaRate",
+    "MetaStatementLine",
+    "MetaStatementMonth",
+    "OptinLink",
+    "OptinVisit",
     "Order",
     "PlatformUser",
     "Product",
+    "Reimbursement",
     "Tenant",
     "TenantChannel",
     "TenantModule",

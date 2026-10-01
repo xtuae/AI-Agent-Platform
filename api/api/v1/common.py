@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -61,7 +61,12 @@ def audit(
 
 
 def money(value: Decimal | None) -> str | None:
-    return None if value is None else str(value.quantize(Decimal("0.01")))
+    return None if value is None else amount(value)
+
+
+def amount(value: Decimal) -> str:
+    """AED to the fils, rounded half up (how an invoice rounds)."""
+    return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 async def load_tenant(ctx: Ctx) -> Tenant:

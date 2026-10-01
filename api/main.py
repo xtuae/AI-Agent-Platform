@@ -19,6 +19,9 @@ from api.core.middleware import CorrelationIdMiddleware
 from api.db.session import Database
 from api.events import EventBroker
 from api.llm.router import LLMRouter
+from api.optin import public as optin_public
+from api.platform import auth as platform_auth
+from api.platform import console as platform_console
 from api.webhooks import meta as meta_webhook
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.router import TenantRouter
@@ -100,6 +103,9 @@ def create_app() -> FastAPI:
     app.include_router(meta_webhook.router)
     app.include_router(auth_routes.router)
     app.include_router(v1.build_router())
+    app.include_router(optin_public.router)
+    app.include_router(platform_auth.router)
+    app.include_router(platform_console.router)
     return app
 
 
