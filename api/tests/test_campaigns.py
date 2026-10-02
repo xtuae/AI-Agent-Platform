@@ -135,6 +135,11 @@ class FakeRedis:
     def __init__(self) -> None:
         self.keys: dict[str, str] = {}
         self.jobs: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+        self.lists: dict[str, list[str]] = {}
+
+    async def rpush(self, key: str, *values: str) -> int:  # the alert outbox
+        self.lists.setdefault(key, []).extend(values)
+        return len(self.lists[key])
 
     async def set(self, key: str, value: str, *, nx: bool = False, ex: int | None = None) -> bool:
         if nx and key in self.keys:

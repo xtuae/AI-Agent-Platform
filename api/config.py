@@ -98,6 +98,30 @@ class Settings(BaseSettings):
     platform_access_ttl_s: int = Field(default=900, ge=60, le=3600)
     platform_session_ttl_s: int = Field(default=12 * 3600, ge=900)  # console sign-in lifetime
 
+    # --- hardening (Phase 6) ---
+    # Alerts to HMH Labz's own WhatsApp: sent from the channel of the tenant with this slug (HMH
+    # Labz's own number), as the approved template below with one body variable, to each number.
+    alert_tenant_slug: str | None = None
+    alert_to: str | None = None  # comma-separated, E.164
+    alert_template: str = "platform_alert"
+    alert_template_language: str = "en"
+    disk_check_paths: list[str] = Field(default_factory=lambda: ["/"])
+    # Backups: a read-only BYPASSRLS role (libpq/asyncpg URL), an age PUBLIC key, S3-compatible
+    # storage (Cloudflare R2 or Backblaze B2). The age private key never goes on the server.
+    backup_database_url: SecretStr | None = None
+    backup_age_recipient: str | None = None
+    backup_bucket: str | None = None
+    backup_endpoint_url: str | None = None
+    backup_region: str = "auto"
+    backup_access_key_id: str | None = None
+    backup_secret_access_key: SecretStr | None = None
+    backup_prefix: str = "hmh-agents"
+    backup_retention_days: int = Field(default=30, ge=1)
+
+    # concurrent jobs per worker process. Turns are I/O-bound (and sleep through the debounce),
+    # so this is limited by the DB pool and LLM rate limits, not CPU. See RUNBOOK capacity notes.
+    worker_max_jobs: int = Field(default=50, ge=1, le=500)
+
     arq_queue_name: str = "arq:queue"
     arq_scheduler_queue_name: str = "arq:scheduler"
 

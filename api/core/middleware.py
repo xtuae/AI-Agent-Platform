@@ -58,3 +58,34 @@ class CorrelationIdMiddleware:
                 latency_ms=round((time.perf_counter() - started) * 1000, 2),
             )
             structlog.contextvars.clear_contextvars()
+
+
+class WebhookMetricsMiddleware:
+    """Counts every Meta webhook response by status (Redis, per minute) for the alert watchdog's
+    5xx-rate check. Counts responses the route never produced too (an unhandled error is a 500)."""
+
+    PATH = "/webhook/meta"
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] != self.PATH or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+        status_code = 500
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            from api.alerts.watchdog import count_webhook
+
+            redis = getattr(scope["app"].state, "redis", None)
+            if redis is not None:
+                await count_webhook(redis, status_code)

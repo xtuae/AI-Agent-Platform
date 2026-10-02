@@ -17,6 +17,7 @@ from typing import Any, Final
 import httpx
 from sqlalchemy import select
 
+from api.alerts import raise_alert
 from api.config import Settings
 from api.core.logging import get_logger
 from api.db.models import MessageTemplate, TenantChannel, TenantModule
@@ -76,6 +77,16 @@ async def refresh_quality(ctx: dict[str, Any], tenant_id: str) -> dict[str, Any]
                     after=row.quality_rating,
                 )
             block = guards.quality_block(row)
+            changed = (before, row.quality_rating) if before != row.quality_rating else None
+            phone = row.display_phone or "a number"
+        if changed is not None and before is not None:  # first reading is not a "change"
+            await raise_alert(
+                ctx["redis"],
+                f"quality:{ch.id}:{changed[1]}",
+                f"Quality rating for {phone} ({tenant_id[:8]}) "
+                f"changed {changed[0]} → {changed[1]}.",
+                cooldown_s=6 * 3600,
+            )
         if block and (worst is None or block == "quality_red"):
             worst = block
     stopped = 0

@@ -23,6 +23,8 @@ dependencies = [
     "openpyxl>=3.1,<4",
     "pyotp>=2.9,<3",
     "segno>=1.6,<2",
+    "pyrage>=1.2,<2",
+    "boto3>=1.35,<2",
 ]
 
 [dependency-groups]
@@ -34,6 +36,9 @@ dev = [
     "mypy>=1.13",
     "ruff>=0.7",
     "types-openpyxl>=3.1.5.20260827",
+]
+load = [
+    "locust>=2.32,<3",
 ]
 
 [build-system]
@@ -83,7 +88,7 @@ plugins = ["pydantic.mypy"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "fastembed.*", "asyncpg.*"]
+module = ["pgvector.*", "fastembed.*", "asyncpg.*", "pyrage.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

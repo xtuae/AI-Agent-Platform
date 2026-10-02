@@ -17,6 +17,8 @@ from arq.connections import RedisSettings
 from arq.typing import WorkerCoroutine
 
 from api.agents.turn import TurnRunner
+from api.alerts.send import send_alerts
+from api.alerts.watchdog import note_llm, watchdog
 from api.billing.jobs import pull_meta_statements
 from api.config import get_settings
 from api.core.logging import configure_logging, get_logger
@@ -29,8 +31,10 @@ from api.meta.client import MetaClient
 from api.meta.outbound import client_for_channel
 from api.modules.campaigns.jobs import campaign_housekeeping, poll_templates, refresh_quality
 from api.modules.campaigns.sender import run_campaign
+from api.ops.jobs import nightly_backup
 from api.workers.jobs.escalation import notify_escalation
 from api.workers.jobs.noop import noop
+from api.workers.jobs.recovery import drain_webhook_buffer, requeue_stranded
 from api.workers.jobs.summarise import summarise_conversation
 from api.workers.jobs.turn import handle_inbound_message
 from api.workers.jobs.webhook_events import apply_status_event, apply_template_status_event
@@ -48,7 +52,12 @@ async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(settings.log_level)
     db = Database(settings)
     http = httpx.AsyncClient(limits=httpx.Limits(max_connections=50, max_keepalive_connections=20))
-    llm = LLMRouter(http, settings)
+    redis = ctx["redis"]
+
+    async def llm_event(name: str) -> None:
+        await note_llm(redis, name)
+
+    llm = LLMRouter(http, settings, on_event=llm_event)
 
     def client_factory(channel: TenantChannel) -> MetaClient:
         return client_for_channel(channel, http, settings)
@@ -106,7 +115,10 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = redis_settings()
     queue_name = get_settings().arq_queue_name
-    max_jobs = 20
+    max_jobs = get_settings().worker_max_jobs
+    # how often an idle worker looks for new jobs. arq's default (0.5 s) added ~0.25 s to every
+    # reply on average; 0.1 s is 10 cheap Redis calls a second per worker (Phase 6 load test).
+    poll_delay = 0.1
     job_timeout = 180  # transcription + up to 5 tool rounds + regeneration
     max_tries = 5
     keep_result = 3600
@@ -121,6 +133,12 @@ class SchedulerSettings:
         cron(campaign_housekeeping, minute={0, 15, 30, 45}, second=30, run_at_startup=False),
         # Meta's own per-day charges, for reconciliation and the reimbursement ledger (Phase 5)
         cron(pull_meta_statements, hour=4, minute=30, second=0, run_at_startup=False),
+        # Phase 6: recovery, alerting, backups
+        cron(drain_webhook_buffer, second={5, 35}, run_at_startup=True),
+        cron(requeue_stranded, minute=set(range(2, 60, 5)), second=10, run_at_startup=False),
+        cron(watchdog, second=20, run_at_startup=False),
+        cron(send_alerts, second=40, run_at_startup=False),
+        cron(nightly_backup, hour=1, minute=30, second=0, run_at_startup=False, timeout=3600),
     ]
     on_startup = startup
     on_shutdown = shutdown

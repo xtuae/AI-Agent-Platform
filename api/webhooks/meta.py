@@ -13,9 +13,12 @@ import time
 from fastapi import APIRouter, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
+from redis.asyncio import Redis
 
 from api.config import get_settings
 from api.core.logging import get_logger
+from api.webhooks import buffer
+from api.webhooks.buffer import Breaker
 from api.webhooks.ingest import IngestFailedError, WebhookIngestor
 from api.webhooks.payloads import WebhookPayload
 from api.webhooks.signature import verify_signature
@@ -29,6 +32,11 @@ _CHALLENGE = re.compile(r"^[0-9A-Za-z_-]{1,128}$")
 
 def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
+
+
+def _buffered(ok: bool) -> Response:
+    # 200 once Redis holds it; if Redis is down too, 500 makes Meta keep it and retry
+    return Response(status_code=status.HTTP_200_OK if ok else status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @router.get("/webhook/meta")
@@ -78,12 +86,17 @@ async def receive(request: Request) -> Response:
         log.warning("webhook_unexpected_object", object=payload.object)
         return Response(status_code=status.HTTP_200_OK)
 
-    # 3-6. route, dedup, persist, enqueue
+    # 3-6. route, dedup, persist, enqueue — or, with the database down, park the body in Redis
     ingestor: WebhookIngestor = request.app.state.ingestor
+    breaker: Breaker = request.app.state.webhook_breaker
+    redis: Redis = request.app.state.redis
+    if breaker.is_open:
+        return _buffered(await buffer.push(redis, body))
     try:
         report = await ingestor.ingest(payload)
     except IngestFailedError:
-        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        breaker.trip()
+        return _buffered(await buffer.push(redis, body))
 
     # 7. 200
     log.info(

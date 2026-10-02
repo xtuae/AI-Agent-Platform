@@ -56,6 +56,15 @@ go.{$BASE_DOMAIN} {
 	}
 }
 
+# Status page (Phase 6): Uptime Kuma, staff only. STATUS_BASIC_AUTH_HASH from `caddy hash-password`.
+status.{$BASE_DOMAIN} {
+	import security_headers
+	basic_auth {
+		{$STATUS_BASIC_AUTH_USER:hmh} {$STATUS_BASIC_AUTH_HASH}
+	}
+	reverse_proxy uptime-kuma:3001
+}
+
 # Tenant dashboards (aquamena.…) and the platform console (admin.…): one SPA bundle.
 # The tenant is resolved from the JWT, never from this hostname (§8.1).
 *.{$BASE_DOMAIN} {

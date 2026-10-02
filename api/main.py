@@ -15,7 +15,7 @@ from api.api import v1
 from api.auth import routes as auth_routes
 from api.config import get_settings
 from api.core.logging import configure_logging, get_logger
-from api.core.middleware import CorrelationIdMiddleware
+from api.core.middleware import CorrelationIdMiddleware, WebhookMetricsMiddleware
 from api.db.session import Database
 from api.events import EventBroker
 from api.llm.router import LLMRouter
@@ -23,6 +23,7 @@ from api.optin import public as optin_public
 from api.platform import auth as platform_auth
 from api.platform import console as platform_console
 from api.webhooks import meta as meta_webhook
+from api.webhooks.buffer import Breaker
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.router import TenantRouter
 from api.workers.arq_app import redis_settings
@@ -48,12 +49,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ttl_s=settings.webhook_route_cache_ttl_s,
         negative_ttl_s=settings.webhook_route_negative_ttl_s,
     )
+    app.state.webhook_breaker = Breaker()
     app.state.ingestor = WebhookIngestor(
         app.state.db,
         app.state.redis,
         app.state.router,
         app.state.arq,
         dedup_ttl_s=settings.webhook_dedup_ttl_s,
+        inbound_defer_s=settings.turn_debounce_s,
     )
     # Outbound calls from the API (dashboard replies). Every request has explicit timeouts via
     # MetaClient; the pool limit keeps a stuck Graph API from exhausting sockets.
@@ -98,6 +101,7 @@ def create_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None if settings.app_env == "production" else "/openapi.json",
     )
+    app.add_middleware(WebhookMetricsMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
     app.include_router(meta_webhook.router)

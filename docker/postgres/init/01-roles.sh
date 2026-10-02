@@ -6,6 +6,9 @@
 #   DB_OWNER_USER  owns the schema and every table; runs Alembic migrations. Never used by the app.
 #   DB_APP_USER    what api/worker/scheduler connect as. NOSUPERUSER, NOBYPASSRLS, owns nothing,
 #                  so Row-Level Security always applies to it (01_architecture §4.3).
+#   DB_BACKUP_USER (optional) the nightly pg_dump: read-only (pg_read_all_data) but BYPASSRLS,
+#                  because RLS is FORCED and any other role would dump the tenant tables empty.
+#                  It can read everything and change nothing; its password lives only in .env.
 #
 # Required env: POSTGRES_DB, DB_OWNER_USER, DB_OWNER_PASSWORD, DB_APP_USER, DB_APP_PASSWORD.
 # Optional: POSTGRES_USER (superuser, default postgres), PGHOST/PGPORT for non-socket connections.
@@ -45,4 +48,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO :"app";
 SQL
 
-echo "roles ready: owner=$DB_OWNER_USER app=$DB_APP_USER db=$POSTGRES_DB"
+if [[ -n "${DB_BACKUP_USER:-}" ]]; then
+  : "${DB_BACKUP_PASSWORD:?DB_BACKUP_PASSWORD is required with DB_BACKUP_USER}"
+  psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER:-postgres}" --dbname "$POSTGRES_DB" \
+       -v backup="$DB_BACKUP_USER" -v backup_pw="$DB_BACKUP_PASSWORD" -v db="$POSTGRES_DB" <<'SQL'
+SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE BYPASSRLS PASSWORD %L',
+              :'backup', :'backup_pw')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'backup') \gexec
+GRANT pg_read_all_data TO :"backup";
+GRANT CONNECT ON DATABASE :"db" TO :"backup";
+SQL
+fi
+
+echo "roles ready: owner=$DB_OWNER_USER app=$DB_APP_USER backup=${DB_BACKUP_USER:-none} db=$POSTGRES_DB"

@@ -3,7 +3,8 @@
  1  load the message under its tenant; voice note → download + transcribe → store transcript
  2  explicit STOP → opt out + confirmation, NO model call (absolute; runs even mid-handover)
     consent-page ref ("… (Ref ABCD2345)") → opt in with evidence + confirmation, NO model call
- 3  debounce: wait briefly; if a newer inbound message exists, stop — its job answers both
+ 3  debounce: the job is deferred at ingest (turn_debounce_s); if a newer inbound message
+    exists by the time it runs, stop — that message's job answers both
  4  per-conversation Redis lock (one turn at a time per conversation)
  5  conversation awaiting_human → store only, no agent reply
  6  classify (Flash-Lite): optout / complaint short-circuit, smalltalk canned, else Support Agent
@@ -220,9 +221,9 @@ class TurnRunner:
             if outcome != "no_claim":
                 return outcome
 
-        # 3. debounce, then give way to a newer message
-        if self._settings.turn_debounce_s > 0:
-            await self._sleep(self._settings.turn_debounce_s)
+        # 3. debounce — the job was deferred by turn_debounce_s at ingest, so it starts only after
+        #    the pause (without holding a worker slot while it waits) — then give way to a newer
+        #    message, whose own job will answer both
         async with self._db.tenant_session(tenant_id) as s:
             newer = await s.scalar(
                 select(func.count())

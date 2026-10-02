@@ -105,8 +105,15 @@ class _Provider:
 
 class LLMRouter:
     def __init__(
-        self, http: httpx.AsyncClient, settings: Settings, *, sleep: Sleep = asyncio.sleep
+        self,
+        http: httpx.AsyncClient,
+        settings: Settings,
+        *,
+        sleep: Sleep = asyncio.sleep,
+        on_event: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
+        # on_event("failover" | "all_down"): the worker counts these for the alert watchdog
+        self._on_event = on_event
         self._http = http
         self._settings = settings
         self._sleep = sleep
@@ -170,10 +177,16 @@ class LLMRouter:
                     log.error(
                         "llm_failover", from_provider=prov.name, to_provider=plan[index + 1][0].name
                     )
+                    await self._event("failover")
         log.error("llm_all_providers_down", providers=[p.name for p, _ in plan])
+        await self._event("all_down")
         raise LLMUnavailableError("all LLM providers failed")
 
     # ------------------------------------------------------------ internals
+
+    async def _event(self, name: str) -> None:
+        if self._on_event is not None:
+            await self._on_event(name)
 
     def _plan(self, provider: str, model: str) -> list[tuple[_Provider, str]]:
         prefix = self._settings.openrouter_model_prefix

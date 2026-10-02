@@ -165,9 +165,14 @@ async def channels(db: Database, tenants: TenantPair) -> ChannelPair:
 class RecordingEnqueuer:
     def __init__(self) -> None:
         self.jobs: list[tuple[str, tuple[Any, ...], str | None]] = []
+        self.deferred: dict[str | None, float] = {}
 
-    async def enqueue_job(self, function: str, *args: Any, _job_id: str | None = None) -> Any:
+    async def enqueue_job(
+        self, function: str, *args: Any, _job_id: str | None = None, _defer_by: float | None = None
+    ) -> Any:
         self.jobs.append((function, args, _job_id))
+        if _defer_by:
+            self.deferred[_job_id] = _defer_by
         return object()
 
 
@@ -208,6 +213,8 @@ async def webhook(
 ) -> AsyncIterator[WebhookHarness]:
     application = create_app()
     async with LifespanManager(application):
+        # the webhook buffer is shared Redis state: every test starts with it empty
+        await application.state.redis.delete("webhook:buffer", "webhook:buffer:processing")
         jobs = RecordingEnqueuer()
         application.state.ingestor = WebhookIngestor(
             application.state.db,

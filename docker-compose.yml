@@ -43,6 +43,8 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
       AUTH_RATE_LIMIT_EVENTS: ${AUTH_RATE_LIMIT_EVENTS:-10}
       AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1m}
+      STATUS_BASIC_AUTH_USER: ${STATUS_BASIC_AUTH_USER:-hmh}
+      STATUS_BASIC_AUTH_HASH: ${STATUS_BASIC_AUTH_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./dashboard/dist:/srv/dashboard:ro
@@ -94,6 +96,17 @@ services:
   scheduler:
     <<: *app
     command: ["arq", "api.workers.arq_app.SchedulerSettings"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_APP_USER}:${DB_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MIGRATIONS_DATABASE_URL: postgresql+asyncpg://${DB_OWNER_USER}:${DB_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      # nightly backup (Phase 6): the read-only BYPASSRLS role
+      BACKUP_DATABASE_URL: postgresql://${DB_BACKUP_USER:-agents_backup}:${DB_BACKUP_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # disk alert: the volumes live on the host disk, so their filesystems report its usage
+      DISK_CHECK_PATHS: '["/mnt/pgdata", "/mnt/redisdata"]'
+    volumes:
+      - pgdata:/mnt/pgdata:ro
+      - redisdata:/mnt/redisdata:ro
     healthcheck:
       test: ["CMD", "arq", "--check", "api.workers.arq_app.SchedulerSettings"]
       interval: 60s
@@ -115,6 +128,8 @@ services:
       DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
       DB_APP_USER: ${DB_APP_USER}
       DB_APP_PASSWORD: ${DB_APP_PASSWORD}
+      DB_BACKUP_USER: ${DB_BACKUP_USER:-agents_backup}
+      DB_BACKUP_PASSWORD: ${DB_BACKUP_PASSWORD}
     command:
       - postgres
       - -c
@@ -172,6 +187,19 @@ services:
     networks: [backend]
     logging: *logging
 
+  # Status page (Phase 6): status.<domain>, behind basic auth in Caddy. Monitors /health and the
+  # dashboard from inside; UptimeRobot checks api.<domain>/health from outside (RUNBOOK.md).
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    volumes:
+      - uptimekuma:/app/data
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 256M }
+    networks: [backend]
+    logging: *logging
+
 networks:
   backend:
 
@@ -180,3 +208,4 @@ volumes:
   redisdata:
   caddy_data:
   caddy_config:
+  uptimekuma:

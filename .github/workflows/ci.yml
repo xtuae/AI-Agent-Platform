@@ -42,6 +42,8 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://agents_app:ci-app@localhost:5432/agents_test
       MIGRATIONS_DATABASE_URL: postgresql+asyncpg://agents_owner:ci-owner@localhost:5432/agents_test
       REDIS_URL: redis://localhost:6379/0
+      # backup/restore tests (Phase 6) create and drop scratch databases as the superuser
+      TEST_SUPERUSER_URL: postgresql://postgres:ci-superuser@localhost:5432/agents_test
 
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +52,9 @@ jobs:
         with:
           version: "0.5.11"
           enable-cache: true
+
+      - name: Postgres 16 client tools (pg_dump / pg_restore for the backup tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-16
 
       - name: Install Python 3.12 + deps
         run: |
@@ -91,6 +96,7 @@ jobs:
           docker build -t hmh-caddy ./docker/caddy
           docker run --rm -e BASE_DOMAIN=example.com -e ACME_EMAIL=ci@example.com \
             -e CLOUDFLARE_API_TOKEN=x -e AUTH_RATE_LIMIT_EVENTS=10 -e AUTH_RATE_LIMIT_WINDOW=1m \
+            -e STATUS_BASIC_AUTH_HASH='$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNOMpNb1sOymW0/i0yZD2UTQe' \
             -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" hmh-caddy \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 

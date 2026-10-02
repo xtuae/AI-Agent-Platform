@@ -12,3 +12,4 @@ dashboard/node_modules/
 dashboard/dist/*
 !dashboard/dist/.gitkeep
 .DS_Store
+deploy/history.log

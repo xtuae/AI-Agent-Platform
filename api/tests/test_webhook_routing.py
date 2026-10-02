@@ -41,7 +41,9 @@ from api.tests.conftest import (
     text_message,
     wamid,
 )
+from api.webhooks import buffer
 from api.webhooks import ingest as ingest_module
+from api.webhooks.buffer import Breaker
 from api.webhooks.router import TenantRouter
 from api.webhooks.signature import compute_signature
 
@@ -376,7 +378,7 @@ async def test_replay_after_redis_key_loss_is_caught_by_db_unique(
     assert len(webhook.jobs.jobs) == 1
 
 
-async def test_db_failure_releases_dedup_so_meta_retry_succeeds(
+async def test_db_failure_buffers_and_the_replay_is_not_a_duplicate(
     webhook: WebhookHarness, channels: ChannelPair, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     real = ingest_module._persist_inbound
@@ -396,11 +398,11 @@ async def test_db_failure_releases_dedup_so_meta_retry_succeeds(
             messages_change(channels.a.phone_number_id, messages=[text_message(SENDER, w)]),
         )
     )
-    assert (await webhook.post(payload)).status_code == 500  # Meta will retry
+    assert (await webhook.post(payload)).status_code == 200  # parked in Redis, not lost
     assert await messages_for(webhook.db, channels.t.a) == []
-    assert (
-        await webhook.post(payload)
-    ).status_code == 200  # the retry is NOT treated as a duplicate
+    webhook.app.state.webhook_breaker = Breaker(0)
+    report = await buffer.drain(webhook.app.state.redis, webhook.app.state.ingestor)
+    assert report.replayed == 1  # the replay is NOT treated as a duplicate
     assert [m.wamid for m in await messages_for(webhook.db, channels.t.a)] == [w]
 
 

@@ -5,12 +5,13 @@ carrying changes for two tenants can never mix them. Nothing here calls an LLM o
 
 Failure semantics:
 * Unknown/inactive/suspended routing, invalid change → logged, dropped, 200 (Meta must not retry).
-* Database failure → the Redis dedup claims made for that change are released and
-  IngestFailedError is raised; the handler returns 500 so Meta retries, and the retry is not
-  mistaken for a duplicate. Changes already committed keep their claims, so they are not
-  re-processed on the retry.
+* Database failure (routing or persisting) → the Redis dedup claims made for that change are
+  released and IngestFailedError is raised; the handler parks the body in the Redis buffer and
+  answers 200 (api.webhooks.buffer), and the replay is not mistaken for a duplicate. Changes
+  already committed keep their claims, so they are not re-processed on the replay.
 * Redis unavailable for dedup → proceed; messages.wamid UNIQUE is the second dedup layer.
-* Enqueue failure → logged; the rows are committed and a sweeper re-enqueues (Phase 6).
+* Enqueue failure → logged; the rows are committed and the sweeper re-enqueues them
+  (api.workers.jobs.recovery).
 """
 
 from __future__ import annotations
@@ -58,7 +59,9 @@ QUALITY_FIELDS = frozenset({"phone_number_quality_update", "account_update"})
 
 
 class Enqueuer(Protocol):
-    async def enqueue_job(self, function: str, *args: Any, _job_id: str | None = None) -> Any: ...
+    async def enqueue_job(
+        self, function: str, *args: Any, _job_id: str | None = None, _defer_by: float | None = None
+    ) -> Any: ...
 
 
 class IngestFailedError(Exception):
@@ -82,6 +85,7 @@ class _Job:
     function: str
     args: tuple[str, ...]
     job_id: str
+    defer_s: float | None = None
 
 
 class WebhookIngestor:
@@ -93,7 +97,10 @@ class WebhookIngestor:
         enqueuer: Enqueuer,
         *,
         dedup_ttl_s: int,
+        inbound_defer_s: float = 0.0,
     ) -> None:
+        # the turn debounce, spent waiting in the queue rather than asleep in a worker slot
+        self._inbound_defer = inbound_defer_s or None
         self._db = db
         self._redis = redis
         self._router = router
@@ -129,7 +136,11 @@ class WebhookIngestor:
             report.changes_dropped += 1
             return
 
-        route = await self._router.resolve(value.metadata.phone_number_id)
+        try:
+            route = await self._router.resolve(value.metadata.phone_number_id)
+        except (SQLAlchemyError, OSError, TimeoutError) as exc:  # routing needs the DB on a miss
+            log.error("webhook_route_failed", error=type(exc).__name__)
+            raise IngestFailedError("routing unavailable") from None
         if route is None:
             report.changes_dropped += 1
             return
@@ -177,6 +188,7 @@ class WebhookIngestor:
                                     JOB_INBOUND,
                                     (str(route.tenant_id), str(message_id)),
                                     f"in:{m.id}",
+                                    self._inbound_defer,
                                 )
                             )
                 if new_statuses:
@@ -221,7 +233,11 @@ class WebhookIngestor:
                 report.changes_dropped += 1
                 return
 
-        tenant_id = await self._router.resolve_waba(entry.id)
+        try:
+            tenant_id = await self._router.resolve_waba(entry.id)
+        except (SQLAlchemyError, OSError, TimeoutError) as exc:
+            log.error("webhook_route_failed", error=type(exc).__name__)
+            raise IngestFailedError("routing unavailable") from None
         if tenant_id is None:
             report.changes_dropped += 1
             return
@@ -290,7 +306,12 @@ class WebhookIngestor:
     async def _enqueue(self, jobs: list[_Job], report: IngestReport) -> None:
         for job in jobs:
             try:
-                await self._enqueuer.enqueue_job(job.function, *job.args, _job_id=job.job_id)
+                if job.defer_s:
+                    await self._enqueuer.enqueue_job(
+                        job.function, *job.args, _job_id=job.job_id, _defer_by=job.defer_s
+                    )
+                else:
+                    await self._enqueuer.enqueue_job(job.function, *job.args, _job_id=job.job_id)
                 report.jobs_enqueued += 1
             except (RedisError, OSError) as exc:
                 log.error(
