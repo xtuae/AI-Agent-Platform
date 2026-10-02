@@ -15,6 +15,7 @@ import { Tile } from "@/components/ui/tile";
 import { aed, ago, dateLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { consoleApi, onStaffSession, refreshStaff, STAFF_RANK, staffLogin, staffLogout, type StaffRole, type StaffSession } from "./api";
+import { Logo } from "@/components/Logo";
 import type { LedgerRow, Overview, TenantDetail, TenantRow } from "./types";
 
 function useStaff(): { session: StaffSession | null; ready: boolean } {
@@ -79,6 +80,7 @@ function StaffLogin() {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
+        <Logo className="mb-6 size-12" />
         <h1 className="text-2xl font-semibold tracking-tight">HMH Labz console</h1>
         <p className="mt-1 text-sm text-muted">Staff only. Every tenant, usage, margin and health.</p>
         <form onSubmit={(e) => void onSubmit(e)} className="mt-6 space-y-4">
@@ -126,7 +128,10 @@ function Shell({ session }: { session: StaffSession }) {
       <header className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3 md:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <p className="text-sm font-semibold">HMH Labz console</p>
+            <p className="flex items-center gap-2 text-sm font-semibold">
+              <Logo className="size-6 shrink-0" />
+              <span className="hidden sm:inline">HMH Labz console</span>
+            </p>
             <nav className="flex gap-1" aria-label="Console">
               {NAV.map(({ to, label, icon: Icon, end }) => (
                 <NavLink

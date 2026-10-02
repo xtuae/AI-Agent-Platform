@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/ui/misc";
+import { Logo } from "@/components/Logo";
 import { ApiError, login } from "@/lib/api";
 
 interface Choice {
@@ -40,6 +41,7 @@ export function Login() {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
+        <Logo className="mb-6 size-12" />
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-1 text-sm text-muted">Orders, chats and customers from your WhatsApp agent.</p>
         {choices ? (
@@ -57,10 +59,23 @@ export function Login() {
         ) : (
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <Field label="Email">
-              <Input type="email" autoComplete="username" inputMode="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input
+                type="email"
+                autoComplete="username"
+                inputMode="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </Field>
             <Field label="Password">
-              <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+              <Input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </Field>
             <ErrorNote error={error} />
             <Button type="submit" size="lg" className="w-full" disabled={busy}>

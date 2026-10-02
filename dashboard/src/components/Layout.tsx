@@ -7,6 +7,7 @@ import { useLive } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 import { useModules } from "@/modules";
 import { Spinner } from "./ui/misc";
+import { Logo } from "./Logo";
 import { Sheet } from "./ui/sheet";
 
 interface NavItem {
@@ -61,6 +62,7 @@ export function Layout() {
       {/* desktop sidebar */}
       <aside className="no-print hidden w-56 shrink-0 flex-col border-r border-line bg-surface md:flex">
         <div className="px-4 py-5">
+          <Logo className="mb-3 size-8" />
           <p className="truncate text-sm font-semibold">{session?.tenant.name}</p>
           <p className="truncate text-xs text-muted">{session?.user.name ?? session?.user.email}</p>
         </div>
@@ -93,7 +95,10 @@ export function Layout() {
       <div className="min-w-0 flex-1">
         {/* phone header */}
         <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-line bg-page/95 px-4 py-3 backdrop-blur md:hidden">
-          <p className="truncate text-sm font-semibold">{session?.tenant.name}</p>
+          <p className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+            <Logo className="size-6 shrink-0" />
+            <span className="truncate">{session?.tenant.name}</span>
+          </p>
           <LiveBadge />
         </header>
         <main className="pb-nav mx-auto w-full max-w-6xl px-4 pt-4 md:px-8 md:pt-8">
