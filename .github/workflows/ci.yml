@@ -95,7 +95,7 @@ jobs:
         run: |
           docker build -t hmh-caddy ./docker/caddy
           docker run --rm -e BASE_DOMAIN=example.com -e ACME_EMAIL=ci@example.com \
-            -e CLOUDFLARE_API_TOKEN=x -e AUTH_RATE_LIMIT_EVENTS=10 -e AUTH_RATE_LIMIT_WINDOW=1m \
+            -e CLOUDFLARE_API_TOKEN=ci0dummy0token0not0real0aaaaaaaaaaaaaaaa -e AUTH_RATE_LIMIT_EVENTS=10 -e AUTH_RATE_LIMIT_WINDOW=1m \
             -e STATUS_BASIC_AUTH_HASH='$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNOMpNb1sOymW0/i0yZD2UTQe' \
             -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" hmh-caddy \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
