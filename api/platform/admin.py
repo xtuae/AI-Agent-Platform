@@ -1,17 +1,22 @@
 """/api/v1/platform/admin — what the onboarding scripts do, from the console: create and edit
-clients, switch their modules, connect WhatsApp numbers and rotate their Meta tokens, manage a
-client's dashboard users and HMH Labz's own staff, and download a client's DPA description.
+clients, switch their modules, connect WhatsApp numbers and rotate their Meta tokens, connect a
+Telegram bot, manage a client's dashboard users and HMH Labz's own staff, and download a client's
+DPA description.
 
 Roles: support reads; ops changes clients; owner manages staff. Every change to a client is
 written to that client's audit log; staff changes are logged (they belong to no tenant).
-Secrets only ever travel inward: a Meta token is checked against Meta, encrypted and stored, and
-no response contains it. A new staff member's TOTP secret is shown once, as a QR code.
+Secrets only ever travel inward: a Meta token is checked against Meta, a bot token against
+Telegram (getMe), each encrypted and stored, and no response contains either. The Telegram webhook
+is registered by the server with a fresh secret_token, of which only the sha256 is kept. A new
+staff member's TOTP secret is shown once, as a QR code.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
+import secrets
 import uuid
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
@@ -23,12 +28,22 @@ import segno
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from api.auth import team
 from api.auth.deps import revoke_access
 from api.auth.tokens import Role
+from api.channels.registry import telegram_client
+from api.channels.telegram.client import (
+    TOKEN_RE,
+    BotInfo,
+    TelegramAPIError,
+    TelegramClient,
+    bot_id_of,
+)
+from api.channels.telegram.router import TelegramRouter
 from api.config import get_settings
-from api.core.crypto import encrypt_secret
+from api.core.crypto import decrypt_secret, encrypt_secret
 from api.core.logging import get_logger
 from api.core.passwords import hash_password
 from api.db.models import AuditLog, PlatformUser, Tenant, TenantChannel, TenantSettings, TenantUser
@@ -89,13 +104,18 @@ class Catalogue(BaseModel):
 
 class ChannelAdmin(BaseModel):
     id: uuid.UUID
-    phone_number_id: str
+    kind: str  # whatsapp | telegram
+    phone_number_id: str | None  # WhatsApp only
     waba_id: str | None
     display_phone: str | None
     is_active: bool
     has_token: bool
     token_expires_at: datetime | None
     quality_rating: str | None
+    # Telegram only. Never the token or the webhook secret.
+    telegram_username: str | None = None
+    webhook_set_at: datetime | None = None
+    webhook_error: str | None = None
 
 
 class UserAdmin(BaseModel):
@@ -198,6 +218,11 @@ class TokenIn(In):
     expires: date | None = None
 
 
+class TelegramTokenIn(In):
+    # BotFather's "123456789:AA…" — the shape is checked again before any network call
+    token: Annotated[str, StringConstraints(strip_whitespace=True, min_length=36, max_length=100)]
+
+
 class UserCreate(In):
     email: Email
     name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] | None = None
@@ -253,6 +278,11 @@ def _router(request: Request) -> TenantRouter:
     return r
 
 
+def _tg_router(request: Request) -> TelegramRouter:
+    r: TelegramRouter = request.app.state.telegram_router
+    return r
+
+
 def _money(v: Decimal | None) -> str | None:
     return None if v is None else f"{v:.2f}"
 
@@ -260,6 +290,10 @@ def _money(v: Decimal | None) -> str | None:
 def _channel(ch: TenantChannel) -> ChannelAdmin:
     return ChannelAdmin(
         id=ch.id,
+        kind=ch.kind,
+        telegram_username=ch.telegram_username,
+        webhook_set_at=ch.webhook_set_at,
+        webhook_error=ch.webhook_error,
         phone_number_id=ch.phone_number_id,
         waba_id=ch.waba_id,
         display_phone=ch.display_phone,
@@ -345,7 +379,7 @@ async def _tenant_admin(ctx: PlatformCtx, tenant_id: uuid.UUID) -> TenantAdmin:
             await s.scalars(
                 select(TenantChannel)
                 .where(TenantChannel.tenant_id == tenant_id)
-                .order_by(TenantChannel.phone_number_id)
+                .order_by(TenantChannel.kind.desc(), TenantChannel.phone_number_id)
             )
         ).all()
         users = (
@@ -417,13 +451,14 @@ async def _invalidate_channels(request: Request, ctx: PlatformCtx, tenant_id: uu
     async with ctx.db.platform_session() as s:
         rows = (
             await s.execute(
-                select(TenantChannel.phone_number_id, TenantChannel.waba_id).where(
-                    TenantChannel.tenant_id == tenant_id
-                )
+                select(
+                    TenantChannel.phone_number_id, TenantChannel.waba_id, TenantChannel.channel_key
+                ).where(TenantChannel.tenant_id == tenant_id)
             )
         ).all()
-    for pid, waba in rows:
+    for pid, waba, key in rows:
         await _router(request).invalidate(phone_number_id=pid, waba_id=waba)
+        await _tg_router(request).invalidate(key)
 
 
 # ---------------------------------------------------------------- reference
@@ -604,6 +639,13 @@ async def update_channel(
     changes = body.model_dump(exclude_unset=True)
     if "is_active" in changes and changes["is_active"] is None:
         raise _bad("required", UNPROCESSABLE, field="is_active")
+    current = await _load_channel(ctx, channel_id)
+    if current.kind == "telegram":
+        if set(changes) - {"is_active"}:
+            raise _bad("not_whatsapp", UNPROCESSABLE)
+        if "is_active" in changes and changes["is_active"] != current.is_active:
+            return await _set_bot_active(ctx, request, current, bool(changes["is_active"]))
+        return await _tenant_admin(ctx, current.tenant_id)
     async with ctx.db.platform_session() as s:
         ch = await s.get(TenantChannel, channel_id, with_for_update=True)
         if ch is None:
@@ -629,6 +671,8 @@ async def set_token(
     ctx: OpsCtx, request: Request, channel_id: uuid.UUID, body: TokenIn
 ) -> TenantAdmin:
     ch = await _load_channel(ctx, channel_id)
+    if ch.kind != "whatsapp" or ch.phone_number_id is None:
+        raise _bad("not_whatsapp")
     settings = get_settings()
     http: httpx.AsyncClient = request.app.state.http
     client = MetaClient(
@@ -660,6 +704,193 @@ async def set_token(
         after={"expires": body.expires, "quality": meta.quality_rating},  # never the token
     )
     log.info("channel_token_set", channel_id=str(channel_id), by=ctx.staff.actor)
+    return await _tenant_admin(ctx, ch.tenant_id)
+
+
+# ---------------------------------------------------------------- Telegram bots
+
+TELEGRAM_UPDATES = ["message", "my_chat_member"]
+
+
+async def _check_bot(request: Request, token: str) -> tuple[TelegramClient, BotInfo]:
+    """A token Telegram does not accept is never stored."""
+    if not TOKEN_RE.match(token):
+        raise _bad("telegram_token_invalid", UNPROCESSABLE)
+    client = telegram_client(token, request.app.state.http, get_settings())
+    try:
+        bot = await client.get_me()
+    except TelegramAPIError as exc:
+        raise _bad("telegram_rejected", UNPROCESSABLE, message=exc.description) from None
+    if not bot.is_bot or str(bot.id) != bot_id_of(token):
+        raise _bad("telegram_rejected", UNPROCESSABLE, message="not a bot token")
+    return client, bot
+
+
+async def _register_webhook(client: TelegramClient, channel_key: str) -> tuple[bytes, str | None]:
+    """Point the bot at /webhook/telegram/<channel_key> with a NEW secret_token. Returns the
+    secret's sha256 (all we keep) and an error if Telegram did not take the URL."""
+    settings = get_settings()
+    if not settings.public_api_base_url:
+        raise _bad("public_api_base_url_missing", status.HTTP_503_SERVICE_UNAVAILABLE)
+    url = f"{settings.public_api_base_url.rstrip('/')}/webhook/telegram/{channel_key}"
+    secret = secrets.token_urlsafe(48)
+    try:
+        await client.set_webhook(
+            url,
+            secret,
+            allowed_updates=TELEGRAM_UPDATES,
+            max_connections=settings.telegram_webhook_max_connections,
+        )
+        info = await client.get_webhook_info()
+    except TelegramAPIError as exc:
+        raise _bad("telegram_rejected", UNPROCESSABLE, message=exc.description) from None
+    error = None if info.url == url else "Telegram did not keep the webhook URL"
+    return hashlib.sha256(secret.encode()).digest(), error
+
+
+async def _stored_client(request: Request, ch: TenantChannel) -> TelegramClient:
+    if ch.kind != "telegram" or ch.access_token_encrypted is None:
+        raise _bad("not_telegram")
+    return telegram_client(
+        decrypt_secret(ch.access_token_encrypted), request.app.state.http, get_settings()
+    )
+
+
+async def _set_bot_active(
+    ctx: PlatformCtx, request: Request, ch: TenantChannel, active: bool
+) -> TenantAdmin:
+    """Deactivating deletes the webhook (Telegram would otherwise retry into a 404 for a day);
+    re-activating registers it again with a new secret."""
+    client = await _stored_client(request, ch)
+    secret_hash: bytes | None = None
+    error: str | None = None
+    if active:
+        secret_hash, error = await _register_webhook(client, ch.channel_key)
+    else:
+        try:
+            await client.delete_webhook()
+        except TelegramAPIError as exc:
+            error = f"deleteWebhook failed: {exc.description}"
+            log.warning("telegram_delete_webhook_failed", channel_id=str(ch.id))
+    async with ctx.db.platform_session() as s:
+        row = await s.get(TenantChannel, ch.id, with_for_update=True)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+        row.is_active = active
+        row.webhook_secret_hash = secret_hash
+        row.webhook_set_at = datetime.now(UTC) if active else None
+        row.webhook_error = error
+    await _tg_router(request).invalidate(ch.channel_key)
+    await _audit(
+        ctx, ch.tenant_id, "update_channel", "tenant_channel", ch.id,
+        before={"is_active": ch.is_active}, after={"is_active": active},
+    )  # fmt: skip
+    return await _tenant_admin(ctx, ch.tenant_id)
+
+
+@router.post(
+    "/tenants/{tenant_id}/telegram", response_model=TenantAdmin, status_code=status.HTTP_201_CREATED
+)
+async def add_telegram_bot(
+    ctx: OpsCtx, request: Request, tenant_id: uuid.UUID, body: TelegramTokenIn
+) -> TenantAdmin:
+    async with ctx.db.platform_session() as s:
+        if await s.get(Tenant, tenant_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "tenant not found")
+    client, bot = await _check_bot(request, body.token)
+    bot_id = str(bot.id)
+    async with ctx.db.platform_session() as s:
+        taken = await s.scalar(
+            select(TenantChannel.tenant_id).where(TenantChannel.telegram_bot_id == bot_id)
+        )
+    if taken is not None:  # never reroute a bot that is live for someone
+        raise _bad("bot_taken", same_tenant=taken == tenant_id)
+
+    channel_key = secrets.token_urlsafe(24)
+    secret_hash, error = await _register_webhook(client, channel_key)
+    try:
+        async with ctx.db.platform_session() as s:
+            ch = TenantChannel(
+                tenant_id=tenant_id,
+                kind="telegram",
+                channel_key=channel_key,
+                telegram_bot_id=bot_id,
+                telegram_username=bot.username,
+                access_token_encrypted=encrypt_secret(body.token),
+                webhook_secret_hash=secret_hash,
+                webhook_set_at=datetime.now(UTC),
+                webhook_error=error,
+            )
+            s.add(ch)
+            await s.flush()
+            channel_id = ch.id
+    except IntegrityError:  # added twice at once: the other request won
+        try:
+            await client.delete_webhook()
+        except TelegramAPIError:
+            log.warning("telegram_delete_webhook_failed", bot_id=bot_id)
+        raise _bad("bot_taken", same_tenant=True) from None
+    await _audit(
+        ctx, tenant_id, "add_telegram_bot", "tenant_channel", channel_id,
+        after={"bot_id": bot_id, "bot_username": bot.username},  # never the token
+    )  # fmt: skip
+    log.info("telegram_bot_added", channel_id=str(channel_id), bot_id=bot_id, by=ctx.staff.actor)
+    return await _tenant_admin(ctx, tenant_id)
+
+
+@router.put("/channels/{channel_id}/telegram-token", response_model=TenantAdmin)
+async def replace_telegram_token(
+    ctx: OpsCtx, request: Request, channel_id: uuid.UUID, body: TelegramTokenIn
+) -> TenantAdmin:
+    """After /revoke in BotFather. Must be the same bot; the webhook gets a new secret."""
+    ch = await _load_channel(ctx, channel_id)
+    if ch.kind != "telegram":
+        raise _bad("not_telegram")
+    client, bot = await _check_bot(request, body.token)
+    if str(bot.id) != ch.telegram_bot_id:
+        raise _bad("different_bot")
+    secret_hash: bytes | None = None
+    error: str | None = None
+    if ch.is_active:
+        secret_hash, error = await _register_webhook(client, ch.channel_key)
+    async with ctx.db.platform_session() as s:
+        row = await s.get(TenantChannel, channel_id, with_for_update=True)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+        row.access_token_encrypted = encrypt_secret(body.token)
+        row.telegram_username = bot.username
+        if ch.is_active:
+            row.webhook_secret_hash = secret_hash
+            row.webhook_set_at = datetime.now(UTC)
+            row.webhook_error = error
+    await _tg_router(request).invalidate(ch.channel_key)
+    await _audit(
+        ctx, ch.tenant_id, "set_telegram_token", "tenant_channel", channel_id,
+        after={"bot_id": ch.telegram_bot_id, "bot_username": bot.username},
+    )  # fmt: skip
+    log.info("telegram_token_set", channel_id=str(channel_id), by=ctx.staff.actor)
+    return await _tenant_admin(ctx, ch.tenant_id)
+
+
+@router.post("/channels/{channel_id}/telegram-webhook", response_model=TenantAdmin)
+async def reregister_telegram_webhook(
+    ctx: OpsCtx, request: Request, channel_id: uuid.UUID
+) -> TenantAdmin:
+    """Repair: register the webhook again (new secret), e.g. after the domain changed."""
+    ch = await _load_channel(ctx, channel_id)
+    if not ch.is_active:
+        raise _bad("channel_inactive")
+    client = await _stored_client(request, ch)
+    secret_hash, error = await _register_webhook(client, ch.channel_key)
+    async with ctx.db.platform_session() as s:
+        row = await s.get(TenantChannel, channel_id, with_for_update=True)
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "channel not found")
+        row.webhook_secret_hash = secret_hash
+        row.webhook_set_at = datetime.now(UTC)
+        row.webhook_error = error
+    await _tg_router(request).invalidate(ch.channel_key)
+    await _audit(ctx, ch.tenant_id, "register_telegram_webhook", "tenant_channel", channel_id)
     return await _tenant_admin(ctx, ch.tenant_id)
 
 

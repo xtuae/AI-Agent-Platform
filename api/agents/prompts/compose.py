@@ -159,22 +159,32 @@ def context_description(modules: tuple[Module, ...]) -> str:
 
 
 @lru_cache(maxsize=64)
-def _compiled(kind: str, keys: tuple[str, ...]) -> jinja2.Template:
+def _compiled(kind: str, keys: tuple[str, ...], channel_name: str = "WhatsApp") -> jinja2.Template:
     from api.modules import registry
 
     modules = registry.resolve(keys)
     source = support_source(modules) if kind == "support" else classifier_source(modules)
+    if channel_name != "WhatsApp":
+        # The released templates name WhatsApp (and stay verbatim for it). On another channel the
+        # same text names that channel; only the template text changes, never a variable's value.
+        source = source.replace("WhatsApp", channel_name)
     return env.from_string(source)
 
 
-def render_support(keys: tuple[str, ...], **variables: object) -> str:
-    return _compiled("support", keys).render(**variables).strip()
+def render_support(
+    keys: tuple[str, ...], *, channel_name: str = "WhatsApp", **variables: object
+) -> str:
+    return _compiled("support", keys, channel_name).render(**variables).strip()
 
 
-def render_classifier(keys: tuple[str, ...], **variables: object) -> str:
-    return _compiled("classifier", keys).render(**variables).strip()
+def render_classifier(
+    keys: tuple[str, ...], *, channel_name: str = "WhatsApp", **variables: object
+) -> str:
+    return _compiled("classifier", keys, channel_name).render(**variables).strip()
 
 
-def version(keys: tuple[str, ...]) -> str:
-    """Recorded on every agent message (messages.prompt_version)."""
-    return f"{SUPPORT_CORE}[{','.join(keys)}]+{CLASSIFIER_CORE}"
+def version(keys: tuple[str, ...], channel_kind: str = "whatsapp") -> str:
+    """Recorded on every agent message (messages.prompt_version). A non-WhatsApp channel's
+    turns carry "@<kind>": the same release, with the channel's name in the text."""
+    base = f"{SUPPORT_CORE}[{','.join(keys)}]+{CLASSIFIER_CORE}"
+    return base if channel_kind == "whatsapp" else f"{base}@{channel_kind}"

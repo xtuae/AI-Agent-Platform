@@ -48,6 +48,14 @@ from api.agents.prompts import compose
 from api.agents.support import SupportAgent, SupportTurn
 from api.agents.tools.base import Escalation, EscalationReason, ToolContext, escalate
 from api.agents.tools.record_opt_out import mark_opted_out
+from api.channels.base import ChannelSender, caps_for
+from api.channels.errors import ChannelAPIError, RecipientUnreachableError
+from api.channels.outbound import (
+    ChannelNotConfiguredError,
+    LLMUsage,
+    recipient_for,
+    send_text_reply,
+)
 from api.config import Settings
 from api.core.logging import get_logger
 from api.db.models import Conversation, Customer, Message, Tenant, TenantChannel
@@ -55,8 +63,7 @@ from api.db.session import Database
 from api.llm.embeddings import Embedder
 from api.llm.router import LLM, LLMResult, LLMUnavailableError
 from api.llm.transcribe import Transcriber
-from api.meta.client import MetaAPIError, MetaClient
-from api.meta.outbound import LLMUsage, send_text_reply
+from api.meta.client import MetaClient
 from api.metering import record_usage
 from api.optin import service as optin
 from api.optin.service import find_ref
@@ -112,6 +119,9 @@ _COMPLAINT_REASONS: Final[tuple[tuple[re.Pattern[str], EscalationReason], ...]] 
 )
 
 ClientFactory = Callable[[TenantChannel], MetaClient]
+SenderFactory = Callable[[TenantChannel], ChannelSender]
+# where an inbound message's media lives, by channel: "<prefix><id>" in messages.media_url
+MEDIA_PREFIXES: Final = ("meta-media:", "tg-file:")
 
 
 def complaint_reason(text: str) -> EscalationReason:
@@ -156,6 +166,7 @@ class TurnRunner:
         llm: LLM,
         settings: Settings,
         client_factory: ClientFactory,
+        sender_factory: SenderFactory | None = None,
         embedder: Embedder | None = None,
         transcriber: Transcriber | None = None,
         enqueuer: Enqueuer | None = None,
@@ -166,6 +177,7 @@ class TurnRunner:
         self._llm = llm
         self._settings = settings
         self._client_factory = client_factory
+        self._sender_factory = sender_factory
         self._embedder = embedder
         self._transcriber = transcriber
         self._enqueuer = enqueuer
@@ -375,6 +387,7 @@ class TurnRunner:
             return "replied"
 
         # Support Agent
+        await self._typing(channel, conversation_id)
         async with self._db.tenant_session(tenant_id) as s:
             customer = await s.get(Customer, customer_id)
             assert customer is not None
@@ -389,6 +402,7 @@ class TurnRunner:
             knowledge=knowledge,
             now=now,
             token_cap=self._settings.system_prompt_token_cap,
+            channel_name=caps_for(channel.kind).name,
         )
         log.info(
             "support_prompt",
@@ -433,7 +447,9 @@ class TurnRunner:
             conversation_id,
             outcome.text,
             meter,
-            compose.version(persona.enabled.keys) if outcome.kind == "model" else prompts.CANNED,
+            compose.version(persona.enabled.keys, channel.kind)
+            if outcome.kind == "model"
+            else prompts.CANNED,
         )
         await self._handled(tenant_id, pending_ids)
         for esc in outcome.escalations:
@@ -576,19 +592,25 @@ class TurnRunner:
         async with self._db.tenant_session(tenant_id) as s:
             msg = await s.get(Message, message_id)
             assert msg is not None
+            media_url = msg.media_url or ""
             if (
                 msg.msg_type != "audio"
                 or msg.transcript
-                or not (msg.media_url or "").startswith("meta-media:")
+                or not media_url.startswith(MEDIA_PREFIXES)
             ):
                 return msg.transcript or msg.body or ""
-            media_id = (msg.media_url or "").removeprefix("meta-media:")
+            media_id = media_url.split(":", 1)[1]
         if self._transcriber is None:
             return ""
         try:
-            media = await self._client_factory(channel).download_media(media_id)
+            media = await self._sender(channel).download_media(media_id)
             tr = await self._transcriber.transcribe(media.content, media.mime_type)
-        except (MetaAPIError, LLMUnavailableError, httpx.HTTPError) as exc:
+        except (
+            ChannelAPIError,
+            ChannelNotConfiguredError,
+            LLMUnavailableError,
+            httpx.HTTPError,
+        ) as exc:
             log.error("voice_note_failed", tenant_id=str(tenant_id), error=type(exc).__name__)
             return ""
         meter.add_raw(tr.model, tr.prompt_tokens, tr.completion_tokens, tr.latency_ms, tr.cost_usd)
@@ -603,6 +625,31 @@ class TurnRunner:
             latency_ms=tr.latency_ms,
         )
         return tr.text
+
+    def _sender(self, channel: TenantChannel) -> ChannelSender:
+        if self._sender_factory is not None:
+            return self._sender_factory(channel)
+        if channel.kind != "whatsapp":
+            raise ChannelNotConfiguredError(f"no sender for a {channel.kind} channel")
+        return self._client_factory(channel)
+
+    async def _typing(self, channel: TenantChannel, conversation_id: uuid.UUID) -> None:
+        """Best effort "typing…" on channels that show it (Telegram), before a model turn."""
+        if channel.kind == "whatsapp":
+            return
+        try:
+            sender = self._sender(channel)
+            typing = getattr(sender, "typing", None)
+            if typing is None:
+                return
+            async with self._db.tenant_session(channel.tenant_id) as s:
+                conv = await s.get(Conversation, conversation_id)
+                customer = await s.get(Customer, conv.customer_id) if conv else None
+                to = await recipient_for(s, customer, channel.kind) if customer else None
+            if to:
+                await typing(to)
+        except Exception as exc:  # noqa: BLE001 — cosmetic; never fail a turn over it
+            log.info("typing_failed", error=type(exc).__name__)
 
     async def _channel(self, channel_id: uuid.UUID) -> TenantChannel:
         async with self._db.platform_session() as s:
@@ -647,14 +694,22 @@ class TurnRunner:
         meter: TurnMeter,
         prompt_version: str,
     ) -> None:
-        await send_text_reply(
-            self._db,
-            self._client_factory(channel),
-            tenant_id=tenant_id,
-            conversation_id=conversation_id,
-            text=text,
-            llm=meter.usage(prompt_version),
-        )
+        try:
+            await send_text_reply(
+                self._db,
+                self._sender(channel),
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                text=text,
+                llm=meter.usage(prompt_version),
+            )
+        except RecipientUnreachableError as exc:  # blocked us / no identity: retrying won't help
+            log.warning(
+                "reply_unreachable", tenant_id=str(tenant_id), channel=channel.kind,
+                reason=str(exc),
+            )  # fmt: skip
+            await self._flush_meter(tenant_id, meter)
+            return
         meter.recorded = True
 
     async def _flush_meter(self, tenant_id: uuid.UUID, meter: TurnMeter) -> None:

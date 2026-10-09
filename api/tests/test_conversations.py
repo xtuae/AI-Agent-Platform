@@ -62,7 +62,7 @@ from api.metering import usage_day
 from api.modules.catalog import tools as get_products
 from api.modules.registry import enabled_of
 from api.optin import service as optin
-from api.tests.conftest import WATER_PRESET, RecordingEnqueuer, make_tenant, meta_id, wamid
+from api.tests.conftest import WATER_PRESET, RecordingEnqueuer, make_tenant, meta_id, pnid, wamid
 from api.webhooks.ingest import WebhookIngestor
 from api.webhooks.payloads import WebhookPayload
 from api.webhooks.router import TenantRouter
@@ -243,7 +243,7 @@ class Shop:
             llm=llm,
             settings=self.settings,
             client_factory=lambda ch: MetaClient(
-                http=http, access_token="t", phone_number_id=ch.phone_number_id, api_version="v21.0"
+                http=http, access_token="t", phone_number_id=pnid(ch), api_version="v21.0"
             ),
             transcriber=transcriber,
             enqueuer=self.jobs,

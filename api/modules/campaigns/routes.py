@@ -143,7 +143,10 @@ class CountOut(BaseModel):
 
 class CampaignIn(In):
     name: str = Field(min_length=1, max_length=120)
+    # WhatsApp: an approved template. Telegram: free text in `body` (no templates exist there).
+    channel_kind: Literal["whatsapp", "telegram"] = "whatsapp"
     template_id: uuid.UUID | None = None
+    body: str | None = Field(default=None, min_length=1, max_length=service.TEXT_MAX_CHARS)
     segment: dict[str, Any] | None = None
     variable_bindings: list[Binding] = Field(default_factory=list, max_length=20)
     budget_cap_aed: Decimal | None = Field(
@@ -155,6 +158,7 @@ class CampaignIn(In):
 class CampaignPatch(In):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     template_id: uuid.UUID | None = None
+    body: str | None = Field(default=None, min_length=1, max_length=service.TEXT_MAX_CHARS)
     segment: dict[str, Any] | None = None
     variable_bindings: list[Binding] | None = Field(default=None, max_length=20)
     budget_cap_aed: Decimal | None = Field(
@@ -167,6 +171,8 @@ class CampaignOut(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    channel_kind: str
+    body: str | None
     template_id: uuid.UUID | None
     template_name: str | None
     segment: dict[str, Any] | None
@@ -210,7 +216,7 @@ class PreviewOut(BaseModel):
 class RecipientOut(BaseModel):
     customer_id: uuid.UUID
     name: str | None
-    wa_id: str
+    wa_id: str | None
     status: str | None
     skip_reason: str | None
     sent_at: datetime | None
@@ -278,6 +284,8 @@ def _campaign_out(c: Campaign, template_name: str | None) -> CampaignOut:
         id=c.id,
         name=c.name,
         status=c.status,
+        channel_kind=c.channel_kind,
+        body=c.body,
         template_id=c.template_id,
         template_name=template_name,
         segment=c.segment_query,
@@ -315,7 +323,11 @@ async def _channel(ctx: Ctx) -> TenantChannel:
     async with ctx.platform() as s:
         channel = await s.scalar(
             select(TenantChannel)
-            .where(TenantChannel.tenant_id == ctx.tenant_id, TenantChannel.is_active.is_(True))
+            .where(
+                TenantChannel.tenant_id == ctx.tenant_id,
+                TenantChannel.kind == "whatsapp",
+                TenantChannel.is_active.is_(True),
+            )
             .order_by(TenantChannel.id)
             .limit(1)
         )
@@ -380,7 +392,11 @@ async def guardrails(ctx: Viewer) -> Guardrails:
     async with ctx.platform() as s:
         channel = await s.scalar(
             select(TenantChannel)
-            .where(TenantChannel.tenant_id == ctx.tenant_id, TenantChannel.is_active.is_(True))
+            .where(
+                TenantChannel.tenant_id == ctx.tenant_id,
+                TenantChannel.kind == "whatsapp",
+                TenantChannel.is_active.is_(True),
+            )
             .limit(1)
         )
         ts = await s.get(TenantSettings, ctx.tenant_id)
@@ -652,11 +668,17 @@ async def create_campaign(body: CampaignIn, ctx: Admin) -> CampaignOut:
     enabled = await ctx.modules()
     cfg = config_of(enabled.config("campaigns"))
     segment = _clean_segment(body.segment, enabled)
+    if body.channel_kind != "whatsapp" and body.template_id is not None:
+        raise unprocessable("templates_whatsapp_only")
+    if body.channel_kind == "whatsapp" and body.body is not None:
+        raise unprocessable("body_needs_text_channel")
     async with ctx.tx() as s:
         if body.template_id is not None and await s.get(MessageTemplate, body.template_id) is None:
             raise not_found("template")
         c = Campaign(
             name=body.name.strip(),
+            channel_kind=body.channel_kind,
+            body=body.body.strip() if body.body else None,
             template_id=body.template_id,
             segment_query=segment,
             variable_bindings=[b.model_dump() for b in body.variable_bindings],
@@ -719,6 +741,10 @@ async def update_campaign(campaign_id: uuid.UUID, body: CampaignPatch, ctx: Admi
         c = await _load(ctx, s, campaign_id, lock=True)
         if c.status != "draft":
             raise conflict({"code": "not_a_draft", "status": c.status})
+        if c.channel_kind != "whatsapp" and changes.get("template_id") is not None:
+            raise unprocessable("templates_whatsapp_only")
+        if c.channel_kind == "whatsapp" and changes.get("body") is not None:
+            raise unprocessable("body_needs_text_channel")
         new_template = changes.get("template_id")
         if new_template is not None and await s.get(MessageTemplate, new_template) is None:
             raise not_found("template")
@@ -744,7 +770,7 @@ async def preview_campaign(campaign_id: uuid.UUID, ctx: Viewer) -> PreviewOut:
         c = await _load(ctx, s, campaign_id)
         problems: list[str] = []
         try:
-            service.check_ready(c, await service.template_for(s, c))
+            await service.ready(s, c)
         except service.CampaignError as exc:
             problems.append(exc.code)
         try:
@@ -768,7 +794,7 @@ async def approve_campaign(campaign_id: uuid.UUID, ctx: Admin) -> CampaignOut:
     async with ctx.tx() as s:
         c = await _load(ctx, s, campaign_id, lock=True)
         try:
-            service.check_ready(c, await service.template_for(s, c))
+            await service.ready(s, c)
             service.approve(s, c, ctx.principal.user_id, ctx.principal.actor, datetime.now(UTC))
         except service.CampaignError as exc:
             raise _error(exc) from exc
@@ -783,14 +809,16 @@ async def start_campaign(campaign_id: uuid.UUID, ctx: Admin, request: Request) -
     async with ctx.platform() as p:
         channel = await p.scalar(
             select(TenantChannel).where(
-                TenantChannel.tenant_id == ctx.tenant_id, TenantChannel.is_active.is_(True)
+                TenantChannel.tenant_id == ctx.tenant_id,
+                TenantChannel.kind == "whatsapp",
+                TenantChannel.is_active.is_(True),
             )
         )
     block = guards.quality_block(channel) if channel else None
-    if block:
-        raise conflict({"code": "quality_block", "reason": block})
     async with ctx.tx() as s:
         c = await _load(ctx, s, campaign_id, lock=True)
+        if block and c.channel_kind == "whatsapp":  # a number's quality says nothing of a bot
+            raise conflict({"code": "quality_block", "reason": block})
         try:
             await service.start(s, c, enabled, scope, ctx.principal.actor)
         except service.CampaignError as exc:
@@ -820,14 +848,17 @@ async def resume_campaign(campaign_id: uuid.UUID, ctx: Admin, request: Request) 
     async with ctx.platform() as p:
         channel = await p.scalar(
             select(TenantChannel).where(
-                TenantChannel.tenant_id == ctx.tenant_id, TenantChannel.is_active.is_(True)
+                TenantChannel.tenant_id == ctx.tenant_id,
+                TenantChannel.kind == "whatsapp",
+                TenantChannel.is_active.is_(True),
             )
         )
     async with ctx.tx() as s:
         c = await _load(ctx, s, campaign_id, lock=True)
         try:
+            quality = guards.quality_block(channel) if channel else None
             service.resume(
-                s, c, ctx.principal.actor, guards.quality_block(channel) if channel else None
+                s, c, ctx.principal.actor, quality if c.channel_kind == "whatsapp" else None
             )
         except service.CampaignError as exc:
             raise _error(exc) from exc

@@ -24,6 +24,7 @@ from typing import Any, Final
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from api.channels.errors import ChannelAPIError
 from api.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -35,7 +36,7 @@ BASE_BACKOFF_S: Final = 0.5
 Sleep = Callable[[float], Awaitable[None]]
 
 
-class MetaAPIError(Exception):
+class MetaAPIError(ChannelAPIError):
     def __init__(
         self,
         status_code: int | None,

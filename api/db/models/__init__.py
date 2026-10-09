@@ -1,7 +1,7 @@
 """Import every model so Base.metadata is complete (Alembic, tests)."""
 
 from api.db.models.conversations import Conversation, Message
-from api.db.models.customers import Customer
+from api.db.models.customers import Customer, CustomerIdentity
 from api.db.models.knowledge import KnowledgeChunk
 from api.db.models.metering import AuditLog, MetaStatementLine, MetaStatementMonth, UsageDaily
 from api.db.models.optin import OptinVisit
@@ -49,6 +49,7 @@ __all__ = [
     "CouponBook",
     "CouponPackage",
     "Customer",
+    "CustomerIdentity",
     "KnowledgeChunk",
     "Listing",
     "Message",

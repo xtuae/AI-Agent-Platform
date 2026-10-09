@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -48,22 +49,36 @@ class Tenant(Base):
 
 
 class TenantChannel(Base):
-    """The webhook routing table: phone_number_id → tenant_id."""
+    """The webhook routing table: a WhatsApp phone_number_id, or a Telegram channel_key, →
+    tenant_id. `kind` says which; the columns of the other kind are NULL (a CHECK enforces it)."""
 
     __tablename__ = "tenant_channels"
     __table_args__ = (
         # Target for composite FKs from tenant tables (conversations.channel_id).
         UniqueConstraint("tenant_id", "id"),
+        CheckConstraint("kind in ('whatsapp','telegram')", name="kind"),
+        CheckConstraint(
+            "(kind = 'whatsapp' AND phone_number_id IS NOT NULL AND telegram_bot_id IS NULL)"
+            " OR (kind = 'telegram' AND phone_number_id IS NULL AND telegram_bot_id IS NOT NULL)",
+            name="kind_fields",
+        ),
+        CheckConstraint("channel_key ~ '^[A-Za-z0-9_-]{16,64}$'", name="channel_key"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="RESTRICT"), index=True
     )
+    kind: Mapped[str] = mapped_column(Text, server_default=text("'whatsapp'"))
+    # Unguessable, in the per-channel webhook URL. Not a credential; never logged.
+    channel_key: Mapped[str] = mapped_column(
+        Text, unique=True, default=lambda: secrets.token_urlsafe(24)
+    )
     waba_id: Mapped[str | None] = mapped_column(Text)
-    phone_number_id: Mapped[str] = mapped_column(Text, unique=True)
+    phone_number_id: Mapped[str | None] = mapped_column(Text, unique=True)
     display_phone: Mapped[str | None] = mapped_column(Text)
-    # Fernet ciphertext. NEVER plaintext, never logged.
+    # Fernet ciphertext of the sending credential (Meta access token / Telegram bot token).
+    # NEVER plaintext, never logged.
     access_token_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     token_expires_at: Mapped[datetime | None]
     webhook_verify_token: Mapped[str | None] = mapped_column(Text)
@@ -71,9 +86,18 @@ class TenantChannel(Base):
     messaging_limit_tier: Mapped[str | None] = mapped_column(Text)
     quality_updated_at: Mapped[datetime | None]
     is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    telegram_bot_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    telegram_username: Mapped[str | None] = mapped_column(Text)
+    # sha256 of the secret_token given to Telegram's setWebhook; the secret itself is not kept
+    webhook_secret_hash: Mapped[bytes | None] = mapped_column(LargeBinary)
+    webhook_set_at: Mapped[datetime | None]
+    webhook_error: Mapped[str | None] = mapped_column(Text)
 
     def __repr__(self) -> str:  # keep ciphertext out of tracebacks and debug output
-        return f"TenantChannel(id={self.id}, tenant_id={self.tenant_id}, active={self.is_active})"
+        return (
+            f"TenantChannel(id={self.id}, tenant_id={self.tenant_id}, kind={self.kind}, "
+            f"active={self.is_active})"
+        )
 
 
 class TenantSettings(Base):

@@ -106,7 +106,12 @@ async def today(ctx: Viewer) -> TodayOut:
                 module_data[module.key] = await module.today(s, scope)
         live = await s.scalar(
             select(func.count()).where(
-                Conversation.state != "closed", Conversation.service_window_expires_at > now
+                Conversation.state != "closed",
+                (Conversation.service_window_expires_at > now)
+                | (  # a channel without a service window: wrote in the last 24 h
+                    Conversation.service_window_expires_at.is_(None)
+                    & (Conversation.last_inbound_at > now - timedelta(hours=24))
+                ),
             )
         )
         awaiting = await s.scalar(
@@ -182,14 +187,25 @@ async def today(ctx: Viewer) -> TodayOut:
             else "no failed messages in 24 h",
         ),
     ]
-    if not channels:
+    numbers = [c for c in channels if c.kind == "whatsapp"]
+    bots = [c for c in channels if c.kind == "telegram"]
+    if not numbers and not bots:
         checks.append(
             HealthCheck(name="whatsapp", status="down", detail="no active WhatsApp number")
         )
-    else:
+    if bots:
+        broken = [b for b in bots if b.webhook_error or b.webhook_set_at is None]
+        checks.append(
+            HealthCheck(
+                name="telegram",
+                status="degraded" if broken else "ok",
+                detail="the bot's webhook is not delivering" if broken else "connected",
+            )
+        )
+    if numbers:
         soon = [
             c
-            for c in channels
+            for c in numbers
             if c.token_expires_at is not None and c.token_expires_at < now + TOKEN_WARN
         ]
         checks.append(

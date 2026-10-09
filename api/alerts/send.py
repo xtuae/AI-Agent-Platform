@@ -32,7 +32,11 @@ async def _channel(db: Database, slug: str) -> tuple[Any, TenantChannel] | None:
             await s.execute(
                 select(Tenant.id, TenantChannel)
                 .join(TenantChannel, TenantChannel.tenant_id == Tenant.id)
-                .where(Tenant.slug == slug, TenantChannel.is_active.is_(True))
+                .where(
+                    Tenant.slug == slug,
+                    TenantChannel.kind == "whatsapp",
+                    TenantChannel.is_active.is_(True),
+                )
                 .limit(1)
             )
         ).first()

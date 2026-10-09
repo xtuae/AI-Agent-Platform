@@ -50,7 +50,9 @@ async def refresh_quality(ctx: dict[str, Any], tenant_id: str) -> dict[str, Any]
         channels = (
             await s.scalars(
                 select(TenantChannel).where(
-                    TenantChannel.tenant_id == tid, TenantChannel.is_active.is_(True)
+                    TenantChannel.tenant_id == tid,
+                    TenantChannel.kind == "whatsapp",
+                    TenantChannel.is_active.is_(True),
                 )
             )
         ).all()

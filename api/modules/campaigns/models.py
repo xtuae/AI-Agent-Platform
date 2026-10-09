@@ -69,6 +69,12 @@ class Campaign(TenantScoped, Base):
             name="approval_required",
         ),
         CheckConstraint("throttle_per_minute between 1 and 1000", name="throttle"),
+        CheckConstraint("channel_kind in ('whatsapp','telegram')", name="channel_kind"),
+        # A Telegram campaign is free text: no Meta template exists there.
+        CheckConstraint(
+            "channel_kind = 'whatsapp' OR (template_id IS NULL AND char_length(body) <= 4000)",
+            name="telegram_body",
+        ),
         ForeignKeyConstraint(
             ["tenant_id", "template_id"], ["message_templates.tenant_id", "message_templates.id"]
         ),
@@ -78,6 +84,8 @@ class Campaign(TenantScoped, Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     name: Mapped[str] = mapped_column(Text)
     template_id: Mapped[uuid.UUID | None]
+    channel_kind: Mapped[str] = mapped_column(Text, server_default=text("'whatsapp'"))
+    body: Mapped[str | None] = mapped_column(Text)  # Telegram: the text, with {{n}} variables
     # the segment definition (02 §4.3): {"lapsed_60d": …} fields, compiled by campaigns.segments
     segment_query: Mapped[dict[str, Any] | None]
     # how each template variable is filled: [{"source": "contact.first_name", "fallback": "there"},

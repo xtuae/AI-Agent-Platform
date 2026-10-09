@@ -9,6 +9,9 @@ cancelled from anywhere but done.
   them (constraint 8), so there is no path to 'sending' that skips a person.
 * start snapshots the segment into campaign_recipients ('pending'). Who actually receives the
   message is decided again at send time (opt-in, frequency cap) — see sender.py.
+* A campaign has a channel. WhatsApp: an approved Meta template, to customers with a number.
+  Telegram (06 §6): free text with the same {{n}} variables, no template, no cost, only to
+  customers who started the bot and have not blocked it — and, as everywhere, only opted-in ones.
 """
 
 from __future__ import annotations
@@ -19,12 +22,19 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final
 
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.logging import get_logger
-from api.db.models import AuditLog, Campaign, CampaignRecipient, Customer, MessageTemplate
+from api.db.models import (
+    AuditLog,
+    Campaign,
+    CampaignRecipient,
+    Customer,
+    CustomerIdentity,
+    MessageTemplate,
+)
 from api.meta.pricing import PricingNotConfiguredError, market_for, price_message
 from api.metering import PricingCategory
 from api.modules.base import SegmentScope
@@ -36,6 +46,7 @@ from api.modules.registry import Enabled
 log = get_logger(__name__)
 
 SNAPSHOT_CHUNK: Final = 1000
+TEXT_MAX_CHARS: Final = 4000
 
 
 class CampaignError(Exception):
@@ -79,23 +90,78 @@ def check_ready(campaign: Campaign, template: MessageTemplate) -> None:
         raise CampaignError("no_segment")
 
 
+def check_text_ready(campaign: Campaign) -> None:
+    """A Telegram campaign: a body, its variables bound, a segment. No template exists there."""
+    body = (campaign.body or "").strip()
+    if not body:
+        raise CampaignError("no_body")
+    if len(body) > TEXT_MAX_CHARS:
+        raise CampaignError("body_too_long", maximum=TEXT_MAX_CHARS)
+    try:
+        bindings = parse(campaign.variable_bindings)
+    except ValueError as exc:
+        raise CampaignError("invalid_bindings", detail=str(exc)[:200]) from exc
+    needed = placeholder_count(body)
+    if len(bindings) != needed:
+        raise CampaignError("bindings_mismatch", needed=needed, given=len(bindings))
+    if not campaign.segment_query:
+        raise CampaignError("no_segment")
+
+
+async def ready(s: AsyncSession, campaign: Campaign) -> None:
+    """check_ready for the campaign's channel."""
+    if campaign.channel_kind == "telegram":
+        check_text_ready(campaign)
+    else:
+        check_ready(campaign, await template_for(s, campaign))
+
+
+def reachable(channel_kind: str) -> ColumnElement[bool]:
+    """Customers the campaign's channel can reach at all (opt-in is added by segments)."""
+    if channel_kind == "whatsapp":
+        return Customer.wa_id.is_not(None)
+    return exists(
+        select(CustomerIdentity.id).where(
+            CustomerIdentity.customer_id == Customer.id,
+            CustomerIdentity.kind == channel_kind,
+            CustomerIdentity.blocked_at.is_(None),
+        )
+    )
+
+
 async def preview(
     s: AsyncSession, campaign: Campaign, enabled: Enabled, scope: SegmentScope
 ) -> Preview:
     """Recipient count, estimated AED cost and one rendered sample — before anything sends."""
     definition = campaign.segment_query or {}
-    total = int(await s.scalar(segments.count(definition, enabled, scope)) or 0)
-    markets = (
-        (
+    audience = reachable(campaign.channel_kind)
+    total = int(await s.scalar(segments.count(definition, enabled, scope).where(audience)) or 0)
+    if campaign.channel_kind != "whatsapp":  # no per-message cost; free text, no template
+        sample = sample_to = None
+        first = await s.scalar(
+            segments.customers(definition, enabled, scope).where(audience).limit(1)
+        )
+        if first is not None and campaign.body:
+            try:
+                sample = render(campaign.body, values_for(parse(campaign.variable_bindings), first))
+                sample_to = first.name
+            except ValueError:
+                sample = None
+        return Preview(total, Decimal(0), sample, sample_to)
+    markets = [
+        wa
+        for wa in (
             await s.execute(
                 segments.customers(definition, enabled, scope)
+                .where(audience)
                 .with_only_columns(Customer.wa_id)
                 .limit(20_000)
             )
         )
         .scalars()
         .all()
-    )
+        if wa
+    ]
     by_market: dict[str, int] = {}
     for wa in markets:
         m = market_for(wa)
@@ -119,7 +185,9 @@ async def preview(
         cost = (cost / max(len(markets), 1) * total).quantize(Decimal("0.01"))
     sample = sample_to = None
     if template is not None and template.body:
-        first = await s.scalar(segments.customers(definition, enabled, scope).limit(1))
+        first = await s.scalar(
+            segments.customers(definition, enabled, scope).where(audience).limit(1)
+        )
         if first is not None:
             try:
                 sample = render(template.body, values_for(parse(campaign.variable_bindings), first))
@@ -160,10 +228,13 @@ async def start(
         raise CampaignError("invalid_transition", status=campaign.status)
     if campaign.approved_by is None or campaign.approved_at is None:  # the DB refuses it too
         raise CampaignError("not_approved")
-    check_ready(campaign, await template_for(s, campaign))
+    await ready(s, campaign)
     ids = (
         await s.scalars(
-            select(Customer.id).where(segments.condition(campaign.segment_query, enabled, scope))
+            select(Customer.id).where(
+                segments.condition(campaign.segment_query, enabled, scope),
+                reachable(campaign.channel_kind),
+            )
         )
     ).all()
     for i in range(0, len(ids), SNAPSHOT_CHUNK):
@@ -231,10 +302,15 @@ def cancel(s: AsyncSession, campaign: Campaign, actor: str, reason: str | None =
 
 
 async def pause_all_marketing(s: AsyncSession, reason: str) -> int:
-    """Tenant-wide stop (quality guard): pause every sending campaign; RED cancels them."""
+    """Tenant-wide stop (WhatsApp quality guard): pause every sending WhatsApp campaign; RED
+    cancels them. Another channel's campaigns are not affected by a WhatsApp number's quality."""
     live = (
         await s.scalars(
-            select(Campaign).where(Campaign.status.in_(("sending", "approved"))).with_for_update()
+            select(Campaign)
+            .where(
+                Campaign.status.in_(("sending", "approved")), Campaign.channel_kind == "whatsapp"
+            )
+            .with_for_update()
         )
     ).all()
     for c in live:

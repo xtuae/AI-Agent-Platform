@@ -20,10 +20,19 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.channels.base import caps_for
 from api.config import Settings
 from api.core.logging import get_logger
-from api.db.models import AuditLog, Conversation, Customer, TenantChannel, TenantSettings
+from api.db.models import (
+    AuditLog,
+    Conversation,
+    Customer,
+    CustomerIdentity,
+    TenantChannel,
+    TenantSettings,
+)
 from api.db.session import Database
 from api.meta.client import MetaAPIError
 from api.meta.outbound import ChannelNotConfiguredError, client_for_channel
@@ -31,6 +40,21 @@ from api.meta.pricing import PricingNotConfiguredError, price_message
 from api.metering import record_usage
 
 log = get_logger(__name__)
+
+
+async def _customer_label(s: AsyncSession, customer: Customer | None) -> str:
+    """The customer as staff can find them: their number, else their Telegram handle."""
+    if customer is None:
+        return "unknown"
+    if customer.wa_id:
+        return f"+{customer.wa_id}"
+    identity = await s.scalar(
+        select(CustomerIdentity).where(CustomerIdentity.customer_id == customer.id).limit(1)
+    )
+    if identity is not None:
+        handle = f"@{identity.username}" if identity.username else (customer.name or "a customer")
+        return f"{handle} ({caps_for(identity.kind).name})"
+    return customer.name or "unknown"
 
 
 async def notify_escalation(
@@ -54,6 +78,7 @@ async def notify_escalation(
         if conv is None:
             return {"status": "missing"}
         customer = await s.get(Customer, conv.customer_id)
+        who = await _customer_label(s, customer)
         summary = await s.scalar(
             select(AuditLog.after)
             .where(AuditLog.entity_id == cid, AuditLog.action == "escalate")
@@ -69,6 +94,21 @@ async def notify_escalation(
             return {"status": "unpriced"}
     async with db.platform_session() as s:
         channel = await s.scalar(select(TenantChannel).where(TenantChannel.id == conv.channel_id))
+        if channel is not None and channel.kind != "whatsapp":
+            # the alert is a WhatsApp template to staff: send it from the tenant's WhatsApp number
+            channel = await s.scalar(
+                select(TenantChannel)
+                .where(
+                    TenantChannel.tenant_id == tid,
+                    TenantChannel.kind == "whatsapp",
+                    TenantChannel.is_active.is_(True),
+                )
+                .order_by(TenantChannel.id)
+                .limit(1)
+            )
+            if channel is None:
+                log.warning("escalation_notify_no_whatsapp", tenant_id=tenant_id)
+                return {"status": "no_whatsapp"}
     if channel is None:
         return {"status": "missing"}
 
@@ -84,7 +124,7 @@ async def notify_escalation(
                     "type": "body",
                     "parameters": [
                         {"type": "text", "text": f"{reason.replace('_', ' ')} ({urgency})"},
-                        {"type": "text", "text": f"+{customer.wa_id}" if customer else "unknown"},
+                        {"type": "text", "text": who},
                         {"type": "text", "text": short},
                     ],
                 }

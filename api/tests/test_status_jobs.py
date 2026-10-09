@@ -18,7 +18,7 @@ from api.db.models import (
 )
 from api.db.session import Database
 from api.meta.statuses import should_apply
-from api.tests.conftest import ChannelPair, messages_change, wamid
+from api.tests.conftest import ChannelPair, messages_change, pnid, wamid
 from api.workers.jobs.webhook_events import apply_status_event, apply_template_status_event
 
 
@@ -94,9 +94,7 @@ async def test_status_progression_updates_message_and_campaign_counters(
     w, campaign_id = await _outbound(db, channels, with_campaign=True)
     ctx = {"db": db}
     for status in ("delivered", "read", "delivered", "read"):  # includes out-of-order replays
-        ev = await _status_event(
-            db, channels.t.a, channels.a.phone_number_id, [{"id": w, "status": status}]
-        )
+        ev = await _status_event(db, channels.t.a, pnid(channels.a), [{"id": w, "status": status}])
         await apply_status_event(ctx, str(channels.t.a), str(ev))
 
     async with db.tenant_session(channels.t.a) as s:
@@ -109,9 +107,7 @@ async def test_status_progression_updates_message_and_campaign_counters(
 
 async def test_read_without_delivered_counts_both(db: Database, channels: ChannelPair) -> None:
     w, campaign_id = await _outbound(db, channels, with_campaign=True)
-    ev = await _status_event(
-        db, channels.t.a, channels.a.phone_number_id, [{"id": w, "status": "read"}]
-    )
+    ev = await _status_event(db, channels.t.a, pnid(channels.a), [{"id": w, "status": "read"}])
     await apply_status_event({"db": db}, str(channels.t.a), str(ev))
     async with db.tenant_session(channels.t.a) as s:
         camp = await s.get(Campaign, campaign_id)
@@ -124,7 +120,7 @@ async def test_failed_status_records_error(db: Database, channels: ChannelPair) 
     ev = await _status_event(
         db,
         channels.t.a,
-        channels.a.phone_number_id,
+        pnid(channels.a),
         [
             {
                 "id": w,
@@ -147,9 +143,7 @@ async def test_status_event_cannot_touch_another_tenants_message(
     db: Database, channels: ChannelPair
 ) -> None:
     w, _ = await _outbound(db, channels, with_campaign=False)  # tenant A's message
-    ev = await _status_event(
-        db, channels.t.b, channels.b.phone_number_id, [{"id": w, "status": "read"}]
-    )
+    ev = await _status_event(db, channels.t.b, pnid(channels.b), [{"id": w, "status": "read"}])
     result = await apply_status_event({"db": db}, str(channels.t.b), str(ev))
     assert result["messages"] == 0
     async with db.tenant_session(channels.t.a) as s:
@@ -159,9 +153,7 @@ async def test_status_event_cannot_touch_another_tenants_message(
 
 async def test_status_event_is_applied_once(db: Database, channels: ChannelPair) -> None:
     w, _ = await _outbound(db, channels, with_campaign=False)
-    ev = await _status_event(
-        db, channels.t.a, channels.a.phone_number_id, [{"id": w, "status": "delivered"}]
-    )
+    ev = await _status_event(db, channels.t.a, pnid(channels.a), [{"id": w, "status": "delivered"}])
     assert (await apply_status_event({"db": db}, str(channels.t.a), str(ev)))["status"] == "ok"
     assert (await apply_status_event({"db": db}, str(channels.t.a), str(ev)))["status"] == "skipped"
 

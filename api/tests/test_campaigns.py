@@ -48,7 +48,7 @@ from api.modules.campaigns.segments import SegmentError
 from api.modules.campaigns.sender import run_campaign
 from api.modules.campaigns.templates import Variable, check, drafter_prompt, render
 from api.modules.registry import enabled_of
-from api.tests.conftest import DashHarness, make_channel, make_tenant
+from api.tests.conftest import DashHarness, make_channel, make_tenant, pnid
 
 WATER = ("catalog", "orders", "coupons", "campaigns")
 CLOCK = datetime(2026, 9, 30, 6, 0, tzinfo=UTC)  # Wed 10:00 Gulf
@@ -167,7 +167,7 @@ def worker_ctx(
         return MetaClient(
             http=http,
             access_token="test-token",
-            phone_number_id=ch.phone_number_id,
+            phone_number_id=pnid(ch),
             api_version="v21.0",
             sleep=no_sleep,
         )
@@ -719,7 +719,7 @@ async def test_throttle_limits_each_run(db: Database, settings: Settings) -> Non
 async def test_meta_errors(db: Database, settings: Settings) -> None:
     shop = await make_shop(db, opted_in=3)
     async with db.tenant_session(shop.tenant) as s:
-        was = [(await s.get(Customer, c)).wa_id for c in shop.customers]  # type: ignore[union-attr]
+        was = [(await s.get(Customer, c)).wa_id or "" for c in shop.customers]  # type: ignore[union-attr]
     cid = await make_campaign(db, shop)
     meta = FakeMeta(fail_to={was[0]: 131026})  # undeliverable: that one fails, the rest go
     await run_all(worker_ctx(db, settings, meta), shop, cid)
@@ -727,7 +727,7 @@ async def test_meta_errors(db: Database, settings: Settings) -> None:
 
     shop2 = await make_shop(db, opted_in=3, label="spam")
     async with db.tenant_session(shop2.tenant) as s:
-        wa = (await s.get(Customer, shop2.customers[0])).wa_id  # type: ignore[union-attr]
+        wa = (await s.get(Customer, shop2.customers[0])).wa_id or ""  # type: ignore[union-attr]
     cid2 = await make_campaign(db, shop2)
     await run_all(worker_ctx(db, settings, FakeMeta(fail_to={wa: 131048})), shop2, cid2)
     c = await campaign(db, shop2, cid2)
@@ -751,7 +751,7 @@ async def test_yellow_pauses_marketing_for_that_tenant_only(
     a = await make_shop(db, opted_in=3, label="qa")
     b = await make_shop(db, opted_in=3, label="qb")
     ca, cb = await make_campaign(db, a), await make_campaign(db, b)
-    meta = FakeMeta(quality={a.channel.phone_number_id: "YELLOW"})
+    meta = FakeMeta(quality={pnid(a.channel): "YELLOW"})
     ctx = worker_ctx(db, settings, meta)
 
     ra = await jobs.refresh_quality(ctx, str(a.tenant))
@@ -782,7 +782,7 @@ async def test_yellow_pauses_marketing_for_that_tenant_only(
 async def test_red_stops_marketing(db: Database, settings: Settings) -> None:
     shop = await make_shop(db, opted_in=2)
     cid = await make_campaign(db, shop)
-    ctx = worker_ctx(db, settings, FakeMeta(quality={shop.channel.phone_number_id: "RED"}))
+    ctx = worker_ctx(db, settings, FakeMeta(quality={pnid(shop.channel): "RED"}))
     await jobs.refresh_quality(ctx, str(shop.tenant))
     c = await campaign(db, shop, cid)
     assert (c.status, c.paused_reason) == ("cancelled", "quality_red")

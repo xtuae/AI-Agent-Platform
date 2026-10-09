@@ -225,7 +225,7 @@ async def _slug(db: Database, tenant_id: uuid.UUID) -> str:
 
 async def _customers(db: Database, tenant_id: uuid.UUID) -> dict[str, Customer]:
     async with db.tenant_session(tenant_id) as s:
-        return {c.wa_id: c for c in (await s.scalars(select(Customer))).all()}
+        return {c.wa_id or "": c for c in (await s.scalars(select(Customer))).all()}
 
 
 async def test_import_fills_blanks_keeps_corrections_and_is_idempotent(

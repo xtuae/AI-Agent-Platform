@@ -13,6 +13,13 @@ from api.core.logging import get_logger
 
 CORRELATION_HEADER = "x-request-id"
 _VALID_ID = re.compile(r"^[A-Za-z0-9._-]{8,128}$")
+# A per-channel webhook path carries the channel's unguessable key: never log it.
+_CHANNEL_PATH = re.compile(r"^(/webhook/telegram/)[^/]+")
+
+
+def loggable_path(path: str) -> str:
+    return _CHANNEL_PATH.sub(r"\1{channel_key}", path)
+
 
 log = get_logger("api.request")
 
@@ -53,7 +60,7 @@ class CorrelationIdMiddleware:
             log.info(
                 "http_request",
                 method=scope["method"],
-                path=scope["path"],
+                path=loggable_path(scope["path"]),
                 status=status_code,
                 latency_ms=round((time.perf_counter() - started) * 1000, 2),
             )

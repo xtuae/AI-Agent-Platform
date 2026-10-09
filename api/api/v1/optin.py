@@ -21,7 +21,7 @@ from api.api.v1.common import In, audit, load_tenant, not_found, unprocessable
 from api.auth.deps import Admin, Ctx, Viewer
 from api.config import get_settings
 from api.db.models import OptinLink, OptinVisit
-from api.optin.service import new_code, whatsapp_number
+from api.optin.service import new_code, telegram_bot, whatsapp_number
 
 router = APIRouter(prefix="/optin", tags=["optin"])
 
@@ -81,6 +81,7 @@ class LinkOut(BaseModel):
 class LinksOut(BaseModel):
     links: list[LinkOut]
     whatsapp_ready: bool  # no active number → the pages cannot hand over to WhatsApp
+    telegram_ready: bool = False  # a live bot → the pages also offer "Continue on Telegram"
 
 
 class Defaults(BaseModel):
@@ -153,9 +154,14 @@ async def list_links(ctx: Viewer, request: Request) -> LinksOut:
             )
         ).all()
         ready = await whatsapp_number(s, ctx.tenant_id) is not None
+        tg_ready = await telegram_bot(s, ctx.tenant_id) is not None
     counts = await _counts(ctx)
     base = _base(request)
-    return LinksOut(links=[_out(link, base, counts) for link in links], whatsapp_ready=ready)
+    return LinksOut(
+        links=[_out(link, base, counts) for link in links],
+        whatsapp_ready=ready,
+        telegram_ready=tg_ready,
+    )
 
 
 @router.get("/defaults", response_model=Defaults)

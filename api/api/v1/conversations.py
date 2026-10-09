@@ -6,14 +6,15 @@ reply to a conversation they have taken over, so they never race the agent. Hand
 to the agent; inbound messages that arrived while a person had it are marked handled, so the agent
 does not answer questions the person already dealt with.
 
-Replies go out inside the 24 h service window only (free-form); outside it Meta requires an
-approved template — Phase 4.
+On WhatsApp, replies go out inside the 24 h service window only (free-form); outside it Meta
+requires an approved template — Phase 4. Telegram has no window: a person can reply any time,
+unless the customer blocked the bot.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -21,18 +22,29 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 
-from api.api.v1.common import MAX_PAGE, In, audit, conflict, not_found
+from api.api.v1.common import (
+    MAX_PAGE,
+    ChannelRef,
+    In,
+    audit,
+    channel_kinds,
+    channels_of,
+    conflict,
+    identity_matches,
+    not_found,
+)
 from api.auth.deps import Agent, Ctx, Viewer
+from api.channels.base import caps_for
+from api.channels.errors import ChannelAPIError, RecipientUnreachableError
+from api.channels.outbound import (
+    ChannelNotConfiguredError,
+    OutsideServiceWindowError,
+    send_text_reply,
+)
+from api.channels.registry import sender_for
 from api.config import get_settings
 from api.core.logging import get_logger
 from api.db.models import AuditLog, Conversation, Customer, Message, TenantChannel, TenantUser
-from api.meta.client import MetaAPIError
-from api.meta.outbound import (
-    ChannelNotConfiguredError,
-    OutsideServiceWindowError,
-    client_for_channel,
-    send_text_reply,
-)
 from api.meta.pricing import PricingNotConfiguredError
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -45,7 +57,7 @@ PREVIEW_CHARS = 120
 class CustomerRef(BaseModel):
     id: uuid.UUID
     name: str | None
-    wa_id: str
+    wa_id: str | None  # NULL for a customer known only on another channel
     area: str | None
 
 
@@ -68,11 +80,13 @@ class ConversationRow(BaseModel):
     id: uuid.UUID
     state: State
     customer: CustomerRef
+    # the channel this conversation is on, with the customer's handle there
+    channel: ChannelRef
     assigned_to: uuid.UUID | None
     assigned_to_name: str | None
     last_inbound_at: datetime | None
     last_outbound_at: datetime | None
-    window_open: bool
+    window_open: bool  # always true on a channel without a service window
     window_expires_at: datetime | None
     language: str | None
     last_message: LastMessage | None
@@ -202,11 +216,16 @@ async def _rows(
         ).all()
     )
     esc = await _current_handover(s, ids)
+    kinds = await channel_kinds(s, ctx.tenant_id)
+    handles = await channels_of(s, list({cust.id for _, cust in pairs}))
     names = await _user_names(ctx, {c.assigned_to for c, _ in pairs if c.assigned_to})
     now = datetime.now(UTC)
     out: list[ConversationRow] = []
     for conv, cust in pairs:
         m = last.get(conv.id)
+        kind = kinds.get(conv.channel_id, "whatsapp")
+        caps = caps_for(kind)
+        handle = next((h for h in handles[cust.id] if h.kind == kind), None)
         a = esc.get(conv.id) if conv.state == "awaiting_human" else None
         after = (a.after or {}) if a else {}
         out.append(
@@ -214,13 +233,13 @@ async def _rows(
                 id=conv.id,
                 state=conv.state,  # type: ignore[arg-type]
                 customer=CustomerRef(id=cust.id, name=cust.name, wa_id=cust.wa_id, area=cust.area),
+                channel=handle or ChannelRef(kind=kind, name=caps.name, handle=None),
                 assigned_to=conv.assigned_to,
                 assigned_to_name=names.get(conv.assigned_to) if conv.assigned_to else None,
                 last_inbound_at=conv.last_inbound_at,
                 last_outbound_at=conv.last_outbound_at,
-                window_open=bool(
-                    conv.service_window_expires_at and conv.service_window_expires_at > now
-                ),
+                window_open=caps.service_window is None
+                or bool(conv.service_window_expires_at and conv.service_window_expires_at > now),
                 window_expires_at=conv.service_window_expires_at,
                 language=conv.language,
                 last_message=LastMessage(
@@ -264,11 +283,21 @@ async def list_conversations(
         .join(Customer, Customer.id == Conversation.customer_id)
     )
     conds: list[Any] = [Conversation.state == state] if state else [Conversation.state != "closed"]
-    if live:
-        conds.append(Conversation.service_window_expires_at > func.now())
+    if live:  # window open; on a channel without one, the customer wrote in the last 24 h
+        conds.append(
+            (Conversation.service_window_expires_at > func.now())
+            | (
+                Conversation.service_window_expires_at.is_(None)
+                & (Conversation.last_inbound_at > func.now() - timedelta(hours=24))
+            )
+        )
     if q and q.strip():
         like = f"%{q.strip().lower()}%"
-        conds.append(func.lower(Customer.name).like(like) | Customer.wa_id.like(like))
+        conds.append(
+            func.lower(Customer.name).like(like)
+            | Customer.wa_id.like(like)
+            | identity_matches(like.replace("%@", "%", 1))
+        )
     activity = func.greatest(Conversation.last_inbound_at, Conversation.last_outbound_at)
     async with ctx.tx() as s:
         total = int(await s.scalar(count.where(*conds)) or 0)
@@ -434,7 +463,7 @@ async def reply(conversation_id: uuid.UUID, body: ReplyIn, ctx: Agent, request: 
         raise conflict({"code": "channel_inactive"})
     http: httpx.AsyncClient = request.app.state.http
     try:
-        client = client_for_channel(channel, http, get_settings())
+        client = sender_for(channel, http, get_settings())
         await send_text_reply(
             ctx.db,
             client,
@@ -445,16 +474,19 @@ async def reply(conversation_id: uuid.UUID, body: ReplyIn, ctx: Agent, request: 
         )
     except OutsideServiceWindowError as exc:
         raise conflict({"code": "window_closed"}) from exc
+    except RecipientUnreachableError as exc:  # blocked the bot / no identity on this channel
+        raise conflict({"code": "unreachable"}) from exc
     except (ChannelNotConfiguredError, PricingNotConfiguredError) as exc:
         log.error(
             "dashboard_reply_unsendable", tenant_id=str(ctx.tenant_id), error=type(exc).__name__
         )
         raise conflict({"code": "not_sendable", "reason": type(exc).__name__}) from exc
-    except MetaAPIError as exc:
+    except ChannelAPIError as exc:
         log.warning(
             "dashboard_reply_failed", tenant_id=str(ctx.tenant_id), error=type(exc).__name__
         )
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, {"code": "whatsapp_rejected"}) from exc
+        code = "whatsapp_rejected" if channel.kind == "whatsapp" else "channel_rejected"
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, {"code": code}) from exc
     async with ctx.tx() as s:
         await _mark_waiting_handled(s, conversation_id)
     log.info(

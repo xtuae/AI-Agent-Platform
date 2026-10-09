@@ -20,6 +20,7 @@ class WebhookEvent(TenantScoped, Base):
     kind: Mapped[str] = mapped_column(Text)  # messages | statuses | template_status | other
     phone_number_id: Mapped[str | None] = mapped_column(Text)
     waba_id: Mapped[str | None] = mapped_column(Text)
+    channel_id: Mapped[uuid.UUID | None]  # set for channels routed by channel_key (Telegram)
     payload: Mapped[dict[str, Any]]
     received_at: Mapped[datetime] = mapped_column(server_default=func.now())
     processed_at: Mapped[datetime | None]

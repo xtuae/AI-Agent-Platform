@@ -214,6 +214,7 @@ def render_support_prompt(
     knowledge: list[str],
     now: datetime,
     token_cap: int,
+    channel_name: str = "WhatsApp",
 ) -> tuple[str, int, int]:
     """Returns (prompt, chunks_used, estimated_tokens). Chunks are dropped, lowest-ranked first,
     until the prompt fits the cap. Raises if even the chunk-free prompt exceeds it."""
@@ -221,6 +222,7 @@ def render_support_prompt(
     def render(chunks: list[str]) -> str:
         return compose.render_support(
             persona.enabled.keys,
+            channel_name=channel_name,
             agent_name=persona.agent_name,
             business_name=persona.business_name,
             business_description=persona.business_description,

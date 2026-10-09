@@ -153,6 +153,12 @@ class ChannelPair:
     b: TenantChannel
 
 
+def pnid(ch: TenantChannel) -> str:
+    """A WhatsApp channel's phone_number_id (optional on the model since Telegram, 0009)."""
+    assert ch.phone_number_id is not None
+    return ch.phone_number_id
+
+
 @pytest.fixture
 async def channels(db: Database, tenants: TenantPair) -> ChannelPair:
     return ChannelPair(

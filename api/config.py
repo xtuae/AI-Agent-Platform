@@ -118,6 +118,21 @@ class Settings(BaseSettings):
     backup_prefix: str = "hmh-agents"
     backup_retention_days: int = Field(default=30, ge=1)
 
+    # --- Telegram (Phase 8, 06_multichannel_telegram.md) ---
+    # Public origin of this API (e.g. https://api.heyozo.com). Telegram is told to deliver a bot's
+    # updates to <this>/webhook/telegram/<channel_key>; required to connect a bot.
+    public_api_base_url: str | None = None
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_http_timeout_s: float = Field(default=10.0, gt=0)
+    telegram_connect_timeout_s: float = Field(default=5.0, gt=0)
+    telegram_max_retries: int = Field(default=3, ge=0, le=6)
+    telegram_media_max_bytes: int = Field(default=20 * 1024 * 1024, gt=0)  # getFile's own limit
+    telegram_webhook_max_connections: int = Field(default=10, ge=1, le=100)
+    telegram_webhook_max_body_bytes: int = Field(default=1024 * 1024, ge=1024)
+    # Defence in depth: also require Telegram's published source ranges. Off by default — behind
+    # Cloudflare or a proxy the peer address is not Telegram's. The secret_token check always runs.
+    telegram_check_source_ip: bool = False
+
     # concurrent jobs per worker process. Turns are I/O-bound (and sleep through the debounce),
     # so this is limited by the DB pool and LLM rate limits, not CPU. See RUNBOOK capacity notes.
     worker_max_jobs: int = Field(default=50, ge=1, le=500)

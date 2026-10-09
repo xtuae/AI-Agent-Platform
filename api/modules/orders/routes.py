@@ -61,7 +61,7 @@ IDEMPOTENCY_WINDOW = timedelta(hours=24)
 class CustomerRef(BaseModel):
     id: uuid.UUID
     name: str | None
-    wa_id: str
+    wa_id: str | None  # NULL for a customer known only on Telegram
     area: str | None
     address_note: str | None
 
@@ -138,7 +138,7 @@ class DeliveryStop(BaseModel):
     order_no: str
     status: OrderStatus
     customer_name: str | None
-    wa_id: str
+    wa_id: str | None
     address_note: str | None
     delivery_slot: str | None
     items: list[OrderLine]

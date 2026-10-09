@@ -87,7 +87,7 @@ class ResourceOut(BaseModel):
 class CustomerRef(BaseModel):
     id: uuid.UUID
     name: str | None
-    wa_id: str
+    wa_id: str | None  # NULL for a customer known only on Telegram
 
 
 class AppointmentOut(BaseModel):

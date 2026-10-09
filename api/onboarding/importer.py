@@ -306,7 +306,7 @@ async def apply(s: AsyncSession, p: Plan, *, actor: str, file_sha256: str, commi
     wa_ids = [c.wa_id for c in p.candidates]
     for i in range(0, len(wa_ids), CHUNK):
         found = await s.scalars(select(Customer).where(Customer.wa_id.in_(wa_ids[i : i + CHUNK])))
-        existing.update((c.wa_id, c) for c in found)
+        existing.update((c.wa_id, c) for c in found if c.wa_id)
     out = Outcome()
     inserts: list[dict[str, Any]] = []
     updates: list[dict[str, Any]] = []

@@ -20,6 +20,9 @@ from api.agents.turn import TurnRunner
 from api.alerts.send import send_alerts
 from api.alerts.watchdog import note_llm, watchdog
 from api.billing.jobs import pull_meta_statements
+from api.channels.base import ChannelSender
+from api.channels.registry import sender_for
+from api.channels.telegram.health import check_telegram_webhooks
 from api.config import get_settings
 from api.core.logging import configure_logging, get_logger
 from api.db.models import TenantChannel
@@ -62,18 +65,23 @@ async def startup(ctx: dict[str, Any]) -> None:
     def client_factory(channel: TenantChannel) -> MetaClient:
         return client_for_channel(channel, http, settings)
 
+    def sender_factory(channel: TenantChannel) -> ChannelSender:
+        return sender_for(channel, http, settings)
+
     ctx.update(
         settings=settings,
         db=db,
         http=http,
         llm=llm,
         client_factory=client_factory,
+        sender_factory=sender_factory,
         turn_runner=TurnRunner(
             db=db,
             redis=ctx["redis"],
             llm=llm,
             settings=settings,
             client_factory=client_factory,
+            sender_factory=sender_factory,
             embedder=FastEmbedder(settings.embedding_model, settings.embedding_cache_dir),
             transcriber=GeminiTranscriber(http, settings),
             enqueuer=ctx["redis"],
@@ -138,6 +146,8 @@ class SchedulerSettings:
         cron(requeue_stranded, minute=set(range(2, 60, 5)), second=10, run_at_startup=False),
         cron(watchdog, second=20, run_at_startup=False),
         cron(send_alerts, second=40, run_at_startup=False),
+        # Phase 8: every bot's webhook still points here and delivers
+        cron(check_telegram_webhooks, minute=7, second=50, run_at_startup=False),
         cron(nightly_backup, hour=1, minute=30, second=0, run_at_startup=False, timeout=3600),
     ]
     on_startup = startup

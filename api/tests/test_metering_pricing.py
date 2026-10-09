@@ -17,7 +17,7 @@ from api.meta.client import MetaClient
 from api.meta.outbound import OutsideServiceWindowError, send_template, send_text_reply
 from api.meta.pricing import PricingNotConfiguredError, market_for, price_message
 from api.metering import PricingCategory, record_usage, usage_day
-from api.tests.conftest import ChannelPair, TenantPair
+from api.tests.conftest import ChannelPair, TenantPair, pnid
 
 
 def at(d: str) -> datetime:
@@ -158,6 +158,7 @@ async def test_text_reply_is_priced_stamped_and_metered(
     async with db.tenant_session(channels.t.a) as s:
         cust = await s.get(Customer, channels.t.customer_a)
         assert cust is not None
+        assert cust.wa_id is not None
         expected = await price_message(s, category="service", recipient_wa_id=cust.wa_id)
         before = await s.get(UsageDaily, (channels.t.a, usage_day()))
         out_before = before.msgs_out if before else 0
@@ -165,7 +166,7 @@ async def test_text_reply_is_priced_stamped_and_metered(
     graph = FakeGraph()
     msg_id = await send_text_reply(
         db,
-        meta_client(graph, channels.a.phone_number_id),
+        meta_client(graph, pnid(channels.a)),
         tenant_id=channels.t.a,
         conversation_id=conv_id,
         text="Your order is confirmed.",
@@ -197,7 +198,7 @@ async def test_free_form_outside_window_is_refused_before_sending(
     with pytest.raises(OutsideServiceWindowError):
         await send_text_reply(
             db,
-            meta_client(graph, channels.a.phone_number_id),
+            meta_client(graph, pnid(channels.a)),
             tenant_id=channels.t.a,
             conversation_id=conv_id,
             text="hi",
@@ -217,7 +218,7 @@ async def test_marketing_template_costs_marketing_rate(db: Database, channels: C
     graph = FakeGraph()
     msg_id = await send_template(
         db,
-        meta_client(graph, channels.a.phone_number_id),
+        meta_client(graph, pnid(channels.a)),
         tenant_id=channels.t.a,
         conversation_id=conv_id,
         template=tpl,
@@ -244,7 +245,7 @@ async def test_unpriceable_template_is_never_sent(db: Database, channels: Channe
     with pytest.raises(PricingNotConfiguredError):
         await send_template(
             db,
-            meta_client(graph, channels.a.phone_number_id),
+            meta_client(graph, pnid(channels.a)),
             tenant_id=channels.t.a,
             conversation_id=conv_id,
             template=tpl,
@@ -264,7 +265,7 @@ async def test_cannot_send_into_another_tenants_conversation(
     with pytest.raises(LookupError):
         await send_text_reply(
             db,
-            meta_client(graph, channels.b.phone_number_id),
+            meta_client(graph, pnid(channels.b)),
             tenant_id=channels.t.b,
             conversation_id=conv_id,
             text="hi",

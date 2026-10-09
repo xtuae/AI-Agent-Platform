@@ -259,7 +259,7 @@ async def test_quality_drop_alerts(db: Database, settings: Settings, redis: Redi
             .where(TenantChannel.id == shop.channel.id)
             .values(quality_rating="GREEN")
         )
-    ctx = worker_ctx(db, settings, FakeMeta(quality={shop.channel.phone_number_id: "YELLOW"}))
+    ctx = worker_ctx(db, settings, FakeMeta(quality={shop.channel.phone_number_id or "": "YELLOW"}))
     ctx["redis"] = redis
     await campaign_jobs.refresh_quality(ctx, str(shop.tenant))
     assert [a["text"] for a in await alerts.pending(redis) if a["key"].startswith("quality:")] == [

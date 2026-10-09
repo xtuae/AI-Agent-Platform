@@ -13,6 +13,9 @@ from redis.asyncio import Redis
 from api import health
 from api.api import v1
 from api.auth import routes as auth_routes
+from api.channels.telegram import webhook as telegram_webhook
+from api.channels.telegram.ingest import TelegramIngestor
+from api.channels.telegram.router import TelegramRouter
 from api.config import get_settings
 from api.core.logging import configure_logging, get_logger
 from api.core.middleware import CorrelationIdMiddleware, WebhookMetricsMiddleware
@@ -55,6 +58,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.db,
         app.state.redis,
         app.state.router,
+        app.state.arq,
+        dedup_ttl_s=settings.webhook_dedup_ttl_s,
+        inbound_defer_s=settings.turn_debounce_s,
+    )
+    app.state.telegram_router = TelegramRouter(
+        app.state.db,
+        app.state.redis,
+        ttl_s=settings.webhook_route_cache_ttl_s,
+        negative_ttl_s=settings.webhook_route_negative_ttl_s,
+    )
+    app.state.telegram_ingestor = TelegramIngestor(
+        app.state.db,
+        app.state.redis,
         app.state.arq,
         dedup_ttl_s=settings.webhook_dedup_ttl_s,
         inbound_defer_s=settings.turn_debounce_s,
@@ -106,6 +122,7 @@ def create_app() -> FastAPI:
     app.add_middleware(CorrelationIdMiddleware)
     app.include_router(health.router)
     app.include_router(meta_webhook.router)
+    app.include_router(telegram_webhook.router)
     app.include_router(auth_routes.router)
     app.include_router(v1.build_router())
     app.include_router(optin_public.router)

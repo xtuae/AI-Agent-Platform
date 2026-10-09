@@ -35,6 +35,7 @@ from api.db.models import (
     Conversation,
     CouponBook,
     Customer,
+    CustomerIdentity,
     Listing,
     Message,
     MessageTemplate,
@@ -86,6 +87,16 @@ class World:
 async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: str) -> Side:
     today = datetime.now(UTC).date()
     channel: TenantChannel = await make_channel(h.db, tenant)
+    # Telegram (Phase 8) on tenant B only, so tenant A's own lists stay exactly as specified
+    bot: TenantChannel | None = None
+    if mark == B_MARK:
+        bot = TenantChannel(
+            tenant_id=tenant, kind="telegram",
+            telegram_bot_id=str(10**9 + uuid.uuid4().int % 10**9),
+            telegram_username=f"{mark}_bot", access_token_encrypted=encrypt_secret(f"bot-{mark}"),
+        )  # fmt: skip
+        async with h.db.platform_session() as s:
+            s.add(bot)
     async with h.db.platform_session() as s:
         ch = await s.get(TenantChannel, channel.id)
         assert ch is not None
@@ -233,11 +244,52 @@ async def _seed(h: DashHarness, tenant: uuid.UUID, customer: uuid.UUID, mark: st
                 campaign_id=camp.id, customer_id=customer, status="skipped", skip_reason=mark
             )
         )
+        # Telegram (Phase 8): a customer known only on the bot, their conversation and a text
+        # campaign — every tenant route below must keep these to their own tenant too
+        extra: list[Any] = []
+        if bot is not None:
+            tg_user = str(10**8 + uuid.uuid4().int % (9 * 10**8))
+            tg_customer = Customer(
+                name=f"{mark} Bot Customer", source="telegram", opt_in_status="opted_in"
+            )
+            s.add(tg_customer)
+            await s.flush()
+            s.add(
+                CustomerIdentity(
+                    customer_id=tg_customer.id, kind="telegram", external_id=tg_user,
+                    username=f"{mark}_tg", display_name=f"{mark} Bot Customer",
+                )
+            )  # fmt: skip
+            tg_conv = Conversation(
+                customer_id=tg_customer.id, channel_id=bot.id, last_inbound_at=now
+            )
+            s.add(tg_conv)
+            await s.flush()
+            s.add(
+                Message(
+                    conversation_id=tg_conv.id,
+                    wamid=f"tg:{bot.telegram_bot_id}:{tg_user}:1",
+                    direction="in",
+                    msg_type="text",
+                    body=f"{mark} telegram body",
+                    status="received",
+                )
+            )
+            tg_camp = Campaign(
+                name=f"{mark} bot campaign",
+                channel_kind="telegram",
+                body=f"{mark} bot offer",
+                segment_query={"opt_in_status": "opted_in"},
+            )
+            s.add(tg_camp)
+            await s.flush()
+            extra = [bot.id, tg_customer.id, tg_conv.id, tg_camp.id, tg_user]
         ids = {
             str(x)
             for x in (
                 customer, p.id, book.id, order.id, conv.id, user.id, channel.id,
                 listing.id, atype.id, resource.id, exc.id, appt.id, template.id, camp.id,
+                *extra,
             )
         }  # fmt: skip
         return Side(
@@ -1180,6 +1232,20 @@ for _m, _path, _url, _body in (
     ("POST", f"{A}/tenants/{{tenant_id}}/channels", f"{A}/tenants/{{tid}}/channels", None),
     ("PATCH", f"{A}/channels/{{channel_id}}", f"{A}/channels/{_X}", {"is_active": False}),
     ("PUT", f"{A}/channels/{{channel_id}}/token", f"{A}/channels/{_X}/token", None),
+    # Telegram bots (Phase 8)
+    ("POST", f"{A}/tenants/{{tenant_id}}/telegram", f"{A}/tenants/{{tid}}/telegram", None),
+    (
+        "PUT",
+        f"{A}/channels/{{channel_id}}/telegram-token",
+        f"{A}/channels/{_X}/telegram-token",
+        None,
+    ),
+    (
+        "POST",
+        f"{A}/channels/{{channel_id}}/telegram-webhook",
+        f"{A}/channels/{_X}/telegram-webhook",
+        None,
+    ),
     ("POST", f"{A}/tenants/{{tenant_id}}/users", f"{A}/tenants/{{tid}}/users", None),
     (
         "PATCH",

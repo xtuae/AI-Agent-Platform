@@ -24,7 +24,7 @@ from api.db.models import MetaStatementLine, MetaStatementMonth, Tenant, TenantC
 from api.db.session import Database
 from api.meta.client import MetaClient
 from api.metering import record_usage
-from api.tests.conftest import DashHarness, make_tenant, meta_id
+from api.tests.conftest import DashHarness, make_tenant, meta_id, pnid
 
 FIXTURE = Path(__file__).parent / "fixtures" / "meta_pricing_analytics_2026_10.json"
 PEG = Decimal("3.6725")
@@ -132,7 +132,7 @@ def _client_for(transport: httpx.MockTransport) -> Callable[[TenantChannel], Met
 
     def factory(ch: TenantChannel) -> MetaClient:
         return MetaClient(
-            http=http, access_token="t", phone_number_id=ch.phone_number_id, api_version="v21.0"
+            http=http, access_token="t", phone_number_id=pnid(ch), api_version="v21.0"
         )
 
     return factory

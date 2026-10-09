@@ -38,6 +38,7 @@ from api.tests.conftest import (
     make_tenant,
     messages_change,
     meta_id,
+    pnid,
     text_message,
     wamid,
 )
@@ -446,7 +447,7 @@ async def test_meta_payload_fixture_lands_with_correct_tenant(
     raw = (FIXTURES / "meta_text_message.json").read_text()
     raw = (
         raw.replace("__WABA_ID__", channels.b.waba_id or "")
-        .replace("__PHONE_NUMBER_ID__", channels.b.phone_number_id)
+        .replace("__PHONE_NUMBER_ID__", pnid(channels.b))
         .replace("__WAMID__", w)
     )
     assert (await webhook.post(raw.encode())).status_code == 200

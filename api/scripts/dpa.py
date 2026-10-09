@@ -63,7 +63,9 @@ async def render(slug: str, db: Database | None = None) -> str:
                 raise ValueError(f"no tenant with slug {slug!r}")
             ts = await s.get(TenantSettings, tenant.id)
             channel = await s.scalar(
-                select(TenantChannel).where(TenantChannel.tenant_id == tenant.id).limit(1)
+                select(TenantChannel)
+                .where(TenantChannel.tenant_id == tenant.id, TenantChannel.kind == "whatsapp")
+                .limit(1)
             )
             enabled = await registry.enabled_for(s, tenant.id)
     finally:

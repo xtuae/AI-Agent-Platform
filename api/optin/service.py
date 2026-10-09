@@ -45,6 +45,8 @@ CODE_LEN: Final = 8
 REF_LEN: Final = 8
 VISIT_TTL: Final = timedelta(days=7)
 _REF = re.compile(rf"\bref[\s:#.-]*([{REF_ALPHABET}]{{{REF_LEN}}})\b", re.I)
+# Telegram: the consent page links to t.me/<bot>?start=<ref>; the bot receives "/start <ref>".
+_START_REF = re.compile(rf"^/start(?:@\w+)?\s+([{REF_ALPHABET}]{{{REF_LEN}}})\s*$", re.I)
 
 
 def new_code() -> str:
@@ -56,7 +58,7 @@ def new_ref() -> str:
 
 
 def find_ref(text: str) -> str | None:
-    m = _REF.search(text)
+    m = _REF.search(text) or _START_REF.match(text.strip())
     return m.group(1).upper() if m else None
 
 
@@ -74,8 +76,29 @@ async def whatsapp_number(s: AsyncSession, tenant_id: uuid.UUID) -> str | None:
         select(TenantChannel.display_phone)
         .where(
             TenantChannel.tenant_id == tenant_id,
+            TenantChannel.kind == "whatsapp",
             TenantChannel.is_active.is_(True),
             TenantChannel.display_phone.is_not(None),
+        )
+        .order_by(TenantChannel.id)
+        .limit(1)
+    )
+
+
+def telegram_link(bot_username: str, ref: str) -> str:
+    """t.me deep link: the bot receives "/start <ref>" when the customer presses Start."""
+    return f"https://t.me/{quote(bot_username)}?start={ref}"
+
+
+async def telegram_bot(s: AsyncSession, tenant_id: uuid.UUID) -> str | None:
+    """The tenant's live Telegram bot's username (platform session)."""
+    return await s.scalar(
+        select(TenantChannel.telegram_username)
+        .where(
+            TenantChannel.tenant_id == tenant_id,
+            TenantChannel.kind == "telegram",
+            TenantChannel.is_active.is_(True),
+            TenantChannel.telegram_username.is_not(None),
         )
         .order_by(TenantChannel.id)
         .limit(1)
@@ -162,7 +185,7 @@ async def claim(
     customer.opt_in_evidence = evidence
     customer.opt_out_at = None
     if not customer.source or (
-        customer.source == "inbound" and await _first_message(s, customer_id)
+        customer.source in ("inbound", "telegram") and await _first_message(s, customer_id)
     ):  # this message is how they found us: credit the QR, not "inbound"
         customer.source = link.source
     s.add(

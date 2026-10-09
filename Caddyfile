@@ -31,7 +31,8 @@
 	}
 }
 
-# API + Meta webhook.
+# API + Meta and Telegram webhooks (/webhook/meta, /webhook/telegram/<channel_key>): raw body
+# passed through unmodified, no rate limit tight enough to drop a burst.
 api.{$BASE_DOMAIN} {
 	import security_headers
 	import auth_rate_limit auth_api

@@ -11,10 +11,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import ColumnElement, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.deps import Ctx
-from api.db.models import AuditLog, Tenant
+from api.channels.base import caps_for
+from api.db.models import AuditLog, Customer, CustomerIdentity, Tenant, TenantChannel
 
 MAX_PAGE = 200
 
@@ -102,3 +104,59 @@ def normalise_wa_id(raw: str, default_country: str = "971") -> str:
     if not 8 <= len(digits) <= 15 or digits.startswith("0"):
         raise ValueError("not a valid international phone number")
     return digits
+
+
+# ---------------------------------------------------------------- channels a customer is on
+
+
+class ChannelRef(BaseModel):
+    kind: str  # whatsapp | telegram
+    name: str  # WhatsApp | Telegram
+    handle: str | None  # the number (digits, no '+') | "@username" | the Telegram display name
+    blocked: bool = False  # they blocked us there: unreachable until they write again
+
+
+def identity_ref(i: CustomerIdentity) -> ChannelRef:
+    if i.kind == "whatsapp":
+        handle: str | None = i.external_id
+    else:
+        handle = f"@{i.username}" if i.username else i.display_name
+    return ChannelRef(
+        kind=i.kind, name=caps_for(i.kind).name, handle=handle, blocked=i.blocked_at is not None
+    )
+
+
+async def channels_of(
+    s: AsyncSession, customer_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[ChannelRef]]:
+    """Every channel identity of these customers (tenant session), WhatsApp first."""
+    out: dict[uuid.UUID, list[ChannelRef]] = {c: [] for c in customer_ids}
+    if not customer_ids:
+        return out
+    rows = await s.scalars(
+        select(CustomerIdentity)
+        .where(CustomerIdentity.customer_id.in_(customer_ids))
+        .order_by(CustomerIdentity.customer_id, CustomerIdentity.kind.desc())  # whatsapp first
+    )
+    for i in rows:
+        out[i.customer_id].append(identity_ref(i))
+    return out
+
+
+async def channel_kinds(s: AsyncSession, tenant_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """channel id → kind, for this tenant's channels (a platform table, so filtered by hand)."""
+    rows = await s.execute(
+        select(TenantChannel.id, TenantChannel.kind).where(TenantChannel.tenant_id == tenant_id)
+    )
+    return dict(rows.tuples().all())
+
+
+def identity_matches(like: str) -> ColumnElement[bool]:
+    """Search: a customer whose Telegram @username or channel id matches (lower-case LIKE)."""
+    return exists(
+        select(CustomerIdentity.id).where(
+            CustomerIdentity.customer_id == Customer.id,
+            func.lower(CustomerIdentity.username).like(like)
+            | CustomerIdentity.external_id.like(like),
+        )
+    )

@@ -1,18 +1,23 @@
 """The console's admin API: creating and editing clients, modules, WhatsApp numbers and tokens,
-client dashboard users, and HMH Labz staff — with the role each action needs."""
+Telegram bots, client dashboard users, and HMH Labz staff — with the role each action needs."""
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
 
 import httpx
 import pyotp
+import pytest
 from sqlalchemy import select
 
+from api.config import Settings
 from api.core.crypto import decrypt_secret
 from api.db.models import AuditLog, PlatformUser, TenantChannel, TenantUser
 from api.tests.conftest import DEFAULT_PASSWORD, DashHarness, make_tenant, meta_id
 from api.tests.test_platform_console import PASSWORD, _login, _staff
+from api.tests.test_telegram import FakeTelegram, new_token
 
 A = "/api/v1/platform/admin"
 
@@ -185,6 +190,134 @@ async def test_token_is_checked_with_meta_encrypted_and_never_returned(dash: Das
         entry = await s.scalar(select(AuditLog).where(AuditLog.action == "set_channel_token"))
     assert entry is not None
     assert token not in str(entry.after)
+
+
+# ---------------------------------------------------------------- Telegram bots
+
+
+@pytest.fixture
+def public_api(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> str:
+    monkeypatch.setattr(settings, "public_api_base_url", "https://api.heyozo.test")
+    return "https://api.heyozo.test"
+
+
+async def test_a_bot_is_checked_registered_encrypted_and_never_returned(
+    dash: DashHarness, public_api: str
+) -> None:
+    support, ops = await _as(dash, "support"), await _as(dash, "ops")
+    tid = await make_tenant(dash.db, "bot")
+    fake = FakeTelegram()
+    dash.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(fake))
+    token = new_token()
+    bot_id = token.split(":")[0]
+    url = f"{A}/tenants/{tid}/telegram"
+
+    r = await dash.client.post(url, json={"token": token}, headers=support)
+    assert r.status_code == 403
+    r = await dash.client.post(url, json={"token": "not:a-bot-token" + "x" * 30}, headers=ops)
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "telegram_token_invalid"
+    fake.reject_token = True  # a token Telegram rejects is never stored
+    r = await dash.client.post(url, json={"token": token}, headers=ops)
+    assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "telegram_rejected"
+    fake.reject_token = False
+
+    r = await dash.client.post(url, json={"token": token}, headers=ops)
+    assert r.status_code == 201, r.text
+    assert token not in r.text
+    (ch_out,) = [c for c in r.json()["channels"] if c["kind"] == "telegram"]
+    assert ch_out["telegram_username"] == f"b{bot_id}"
+    assert ch_out["has_token"] is True
+    assert ch_out["phone_number_id"] is None
+    assert ch_out["webhook_error"] is None
+    async with dash.db.platform_session() as s:
+        ch = await s.get(TenantChannel, uuid.UUID(ch_out["id"]))
+    assert ch is not None
+    assert ch.access_token_encrypted is not None
+    assert decrypt_secret(ch.access_token_encrypted) == token
+    hook = fake.webhooks[bot_id]
+    assert hook["url"] == f"{public_api}/webhook/telegram/{ch.channel_key}"
+    assert hook["allowed_updates"] == ["message", "my_chat_member"]
+    assert ch.webhook_secret_hash == hashlib.sha256(hook["secret_token"].encode()).digest()
+    assert hook["secret_token"] not in r.text
+    async with dash.db.tenant_session(tid) as s:
+        entry = await s.scalar(select(AuditLog).where(AuditLog.action == "add_telegram_bot"))
+    assert entry is not None
+    assert token not in str(entry.after)
+
+    # the same bot for another client — or twice — is refused
+    other = await make_tenant(dash.db, "bot2")
+    r = await dash.client.post(f"{A}/tenants/{other}/telegram", json={"token": token}, headers=ops)
+    assert (r.status_code, r.json()["detail"]) == (409, {"code": "bot_taken", "same_tenant": False})
+
+
+async def test_replacing_rotating_and_deactivating_a_bot(
+    dash: DashHarness, public_api: str
+) -> None:
+    ops = await _as(dash, "ops")
+    tid = await make_tenant(dash.db, "botrot")
+    fake = FakeTelegram()
+    dash.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(fake))
+    token = new_token()
+    bot_id = token.split(":")[0]
+    r = await dash.client.post(f"{A}/tenants/{tid}/telegram", json={"token": token}, headers=ops)
+    cid = next(c["id"] for c in r.json()["channels"] if c["kind"] == "telegram")
+    first_secret = fake.webhooks[bot_id]["secret_token"]
+
+    # after /revoke the token changes but the bot is the same; another bot's token is refused
+    r = await dash.client.put(
+        f"{A}/channels/{cid}/telegram-token", json={"token": new_token()}, headers=ops
+    )
+    assert r.json()["detail"]["code"] == "different_bot"
+    rotated = f"{bot_id}:{secrets.token_urlsafe(26)}"
+    r = await dash.client.put(
+        f"{A}/channels/{cid}/telegram-token", json={"token": rotated}, headers=ops
+    )
+    assert r.status_code == 200, r.text
+    assert rotated not in r.text
+    assert fake.webhooks[bot_id]["secret_token"] != first_secret  # a new secret with the token
+    async with dash.db.platform_session() as s:
+        ch = await s.get(TenantChannel, uuid.UUID(cid))
+    assert ch is not None
+    assert ch.access_token_encrypted is not None
+    assert decrypt_secret(ch.access_token_encrypted) == rotated
+
+    r = await dash.client.post(f"{A}/channels/{cid}/telegram-webhook", headers=ops)
+    assert r.status_code == 200
+
+    # deactivating deletes the webhook (no day of retries into a 404); reactivating re-registers
+    r = await dash.client.patch(f"{A}/channels/{cid}", json={"is_active": False}, headers=ops)
+    assert r.status_code == 200
+    assert fake.deleted == [bot_id]
+    assert bot_id not in fake.webhooks
+    r = await dash.client.post(f"{A}/channels/{cid}/telegram-webhook", headers=ops)
+    assert r.json()["detail"]["code"] == "channel_inactive"
+    r = await dash.client.patch(f"{A}/channels/{cid}", json={"is_active": True}, headers=ops)
+    assert r.status_code == 200
+    assert bot_id in fake.webhooks
+    # WhatsApp-only operations do not apply to a bot
+    r = await dash.client.put(f"{A}/channels/{cid}/token", json={"token": "E" * 40}, headers=ops)
+    assert r.json()["detail"]["code"] == "not_whatsapp"
+    r = await dash.client.patch(f"{A}/channels/{cid}", json={"waba_id": "12345"}, headers=ops)
+    assert r.status_code == 422
+
+
+async def test_no_bot_can_be_connected_without_a_public_api_url(
+    dash: DashHarness, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "public_api_base_url", None)
+    ops = await _as(dash, "ops")
+    tid = await make_tenant(dash.db, "nourl")
+    dash.app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(FakeTelegram()))
+    r = await dash.client.post(
+        f"{A}/tenants/{tid}/telegram", json={"token": new_token()}, headers=ops
+    )
+    assert r.status_code == 503
+    async with dash.db.platform_session() as s:
+        assert not (
+            await s.scalars(select(TenantChannel).where(TenantChannel.tenant_id == tid))
+        ).all()
 
 
 # ---------------------------------------------------------------- client dashboard users

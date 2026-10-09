@@ -34,7 +34,11 @@ async def today(s: AsyncSession, scope: TodayScope) -> dict[str, Any]:
     ).all()
     channel = await s.scalar(
         select(TenantChannel)
-        .where(TenantChannel.tenant_id == scope.tenant_id, TenantChannel.is_active.is_(True))
+        .where(
+            TenantChannel.tenant_id == scope.tenant_id,
+            TenantChannel.kind == "whatsapp",
+            TenantChannel.is_active.is_(True),
+        )
         .limit(1)
     )
     return {

@@ -81,6 +81,7 @@ async def pull(
             await s.scalars(
                 select(TenantChannel).where(
                     TenantChannel.tenant_id == tenant_id,
+                    TenantChannel.kind == "whatsapp",
                     TenantChannel.waba_id.is_not(None),
                     TenantChannel.access_token_encrypted.is_not(None),
                 )

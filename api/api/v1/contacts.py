@@ -19,9 +19,12 @@ from sqlalchemy import Select, func, or_, select
 
 from api.api.v1.common import (
     MAX_PAGE,
+    ChannelRef,
     In,
     audit,
+    channels_of,
     conflict,
+    identity_matches,
     load_tenant,
     local_today,
     normalise_wa_id,
@@ -39,13 +42,14 @@ EDITABLE = ("name", "area", "emirate", "address_note", "language")
 
 class CustomerRow(BaseModel):
     id: uuid.UUID
-    wa_id: str
+    wa_id: str | None  # NULL for a customer known only on another channel (Telegram)
     name: str | None
     area: str | None
     emirate: str | None
     language: str | None
     source: str | None
     opt_in_status: OptIn
+    channels: list[ChannelRef] = []
 
 
 class ConversationBrief(BaseModel):
@@ -92,8 +96,9 @@ class CustomerPatch(In):
     opt_out: Literal[True] | None = None  # the only opt-in change a person can make here
 
 
-def _row(c: Customer) -> CustomerRow:
+def _row(c: Customer, channels: list[ChannelRef] | None = None) -> CustomerRow:
     return CustomerRow(
+        channels=channels or [],
         id=c.id,
         wa_id=c.wa_id,
         name=c.name,
@@ -109,7 +114,11 @@ def _search(stmt: Select[Any], q: str | None, opt_in: OptIn | None, area: str | 
     if q:
         like = f"%{q.lower()}%"
         digits = "".join(ch for ch in q if ch.isdigit())
-        conds = [func.lower(Customer.name).like(like), func.lower(Customer.area).like(like)]
+        conds = [
+            func.lower(Customer.name).like(like),
+            func.lower(Customer.area).like(like),
+            identity_matches(f"%{q.lower().lstrip('@')}%"),
+        ]
         if len(digits) >= 3:
             conds.append(Customer.wa_id.like(f"%{digits}%"))
         stmt = stmt.where(or_(*conds))
@@ -143,7 +152,8 @@ async def list_customers(
                 .offset(offset)
             )
         ).all()
-    return CustomerPage(items=[_row(c) for c in rows], total=total)
+        channels = await channels_of(s, [c.id for c in rows])
+    return CustomerPage(items=[_row(c, channels[c.id]) for c in rows], total=total)
 
 
 async def _detail(ctx: Viewer | Agent, customer_id: uuid.UUID) -> CustomerDetail:
@@ -165,8 +175,9 @@ async def _detail(ctx: Viewer | Agent, customer_id: uuid.UUID) -> CustomerDetail
         for module in enabled.modules:
             if module.contact_panel is not None:
                 panels[module.key] = await module.contact_panel(s, c.id, today)
+        channels = (await channels_of(s, [c.id]))[c.id]
     return CustomerDetail(
-        **_row(c).model_dump(),
+        **_row(c, channels).model_dump(),
         address_note=c.address_note,
         external_ref=c.external_ref,
         opt_in_at=c.opt_in_at,
