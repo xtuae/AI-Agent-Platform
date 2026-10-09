@@ -52,8 +52,10 @@ SUBPROCESSORS: Final = [
 ]  # fmt: skip
 
 
-async def render(slug: str) -> str:
-    db = Database(get_settings())
+async def render(slug: str, db: Database | None = None) -> str:
+    """`db`: an open Database to reuse (the console); otherwise one is opened and closed here."""
+    own = db is None
+    db = db or Database(get_settings())
     try:
         async with db.platform_session() as s:
             tenant = await s.scalar(select(Tenant).where(Tenant.slug == slug))
@@ -65,7 +67,8 @@ async def render(slug: str) -> str:
             )
             enabled = await registry.enabled_for(s, tenant.id)
     finally:
-        await db.dispose()
+        if own:
+            await db.dispose()
 
     number = channel.display_phone if channel and channel.display_phone else "not yet connected"
     label = (ts.contact_label if ts and ts.contact_label else "Customers").lower()

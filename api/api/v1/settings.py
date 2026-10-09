@@ -15,14 +15,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import select
 
 from api.api.v1.common import In, audit, conflict, load_tenant, money, normalise_wa_id, not_found
+from api.auth import team
 from api.auth.deps import Admin, Viewer, revoke_access
 from api.auth.tokens import Role
 from api.config import get_settings
 from api.core.passwords import hash_password
-from api.db.models import AuthRefreshToken, TenantSettings, TenantUser
+from api.db.models import TenantSettings, TenantUser
 
 router = APIRouter(tags=["settings"])
 
@@ -167,26 +168,19 @@ async def list_team(
 
 @router.post("/team", response_model=TeamMember, status_code=status.HTTP_201_CREATED)
 async def add_member(body: TeamCreate, ctx: Admin) -> TeamMember:
-    email = body.email.lower()
     password_hash = await asyncio.to_thread(hash_password, body.password)
     async with ctx.platform() as s:
-        exists = await s.scalar(
-            select(TenantUser.id).where(
-                TenantUser.tenant_id == ctx.tenant_id, func.lower(TenantUser.email) == email
+        try:
+            u = await team.add_user(
+                s,
+                ctx.tenant_id,
+                email=body.email,
+                name=body.name,
+                role=body.role,
+                password_hash=password_hash,
             )
-        )
-        if exists is not None:
-            raise conflict({"code": "email_exists"})
-        u = TenantUser(
-            tenant_id=ctx.tenant_id,
-            email=email,
-            name=body.name,
-            role=body.role,
-            password_hash=password_hash,
-        )
-        s.add(u)
-        await s.flush()
-        await s.refresh(u)
+        except team.TeamError as exc:
+            raise conflict({"code": exc.code}) from exc
         out = _member(u)
     async with ctx.tx() as s:
         audit(s, ctx, "add_member", "tenant_user", out.id, after={"role": body.role})
@@ -199,44 +193,14 @@ async def update_member(user_id: uuid.UUID, body: TeamPatch, ctx: Admin) -> Team
     password = changes.pop("password", None)
     new_hash = await asyncio.to_thread(hash_password, password) if password else None
     async with ctx.platform() as s:
-        u = await s.scalar(
-            select(TenantUser)
-            .where(TenantUser.id == user_id, TenantUser.tenant_id == ctx.tenant_id)
-            .with_for_update()
-        )
-        if u is None:
-            raise not_found("team member")
-        demoting = changes.get("role", "admin") != "admin" or changes.get("is_active") is False
-        if u.role == "admin" and u.is_active and demoting:
-            admins = await s.scalar(
-                select(func.count())
-                .select_from(TenantUser)
-                .where(
-                    TenantUser.tenant_id == ctx.tenant_id,
-                    TenantUser.role == "admin",
-                    TenantUser.is_active.is_(True),
-                )
-            )
-            if int(admins or 0) <= 1:
-                raise conflict({"code": "last_admin"})
-        before = {k: getattr(u, k) for k in changes}
-        for k, v in changes.items():
-            setattr(u, k, v)
-        access_changed = (
-            new_hash is not None
-            or ("role" in changes and before["role"] != u.role)
-            or ("is_active" in changes and before["is_active"] and not u.is_active)
-        )
-        if new_hash is not None:
-            u.password_hash = new_hash
-        if access_changed:  # end their sessions: refresh tokens now, access tokens via Redis
-            await s.execute(
-                update(AuthRefreshToken)
-                .where(AuthRefreshToken.user_id == u.id, AuthRefreshToken.revoked_at.is_(None))
-                .values(revoked_at=func.now())
-            )
-        await s.flush()
-        out = _member(u)
+        try:
+            done = await team.update_user(s, ctx.tenant_id, user_id, changes, new_hash=new_hash)
+        except team.TeamError as exc:
+            if exc.code == "not_found":
+                raise not_found("team member") from exc
+            raise conflict({"code": exc.code}) from exc
+        out = _member(done.user)
+    before, access_changed = done.before, done.access_changed
     if access_changed:
         await revoke_access(ctx.redis, get_settings(), user_id)
     after = dict(changes) | ({"password": "reset"} if new_hash else {})

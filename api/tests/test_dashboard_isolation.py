@@ -1140,6 +1140,8 @@ async def _costs(h: DashHarness, w: World) -> None:
 
 # The console is HMH Labz's, not a tenant's: a tenant token (or tenant credentials) gets nowhere.
 P = "/api/v1/platform"
+A = f"{P}/admin"
+_X = "00000000-0000-4000-8000-000000000001"  # any id: the token is refused first
 
 
 def _console_refused(method: str, url: str, body: dict[str, Any] | None = None) -> Case:
@@ -1168,6 +1170,27 @@ for _m, _path, _url, _body in (
         {"tenant_id": "{tid}", "service_month": 1},
     ),
     ("GET", f"{P}/auth/me", f"{P}/auth/me", None),
+    # the admin API (create/edit clients, numbers, tokens, users, staff)
+    ("GET", f"{A}/catalogue", f"{A}/catalogue", None),
+    ("POST", f"{A}/tenants", f"{A}/tenants", {"slug": "x", "name": "x"}),
+    ("GET", f"{A}/tenants/{{tenant_id}}", f"{A}/tenants/{{tid}}", None),
+    ("PATCH", f"{A}/tenants/{{tenant_id}}", f"{A}/tenants/{{tid}}", {"status": "churned"}),
+    ("PUT", f"{A}/tenants/{{tenant_id}}/modules", f"{A}/tenants/{{tid}}/modules", {"enabled": []}),
+    ("GET", f"{A}/tenants/{{tenant_id}}/dpa", f"{A}/tenants/{{tid}}/dpa", None),
+    ("POST", f"{A}/tenants/{{tenant_id}}/channels", f"{A}/tenants/{{tid}}/channels", None),
+    ("PATCH", f"{A}/channels/{{channel_id}}", f"{A}/channels/{_X}", {"is_active": False}),
+    ("PUT", f"{A}/channels/{{channel_id}}/token", f"{A}/channels/{_X}/token", None),
+    ("POST", f"{A}/tenants/{{tenant_id}}/users", f"{A}/tenants/{{tid}}/users", None),
+    (
+        "PATCH",
+        f"{A}/tenants/{{tenant_id}}/users/{{user_id}}",
+        f"{A}/tenants/{{tid}}/users/{_X}",
+        {"is_active": False},
+    ),
+    ("GET", f"{A}/staff", f"{A}/staff", None),
+    ("POST", f"{A}/staff", f"{A}/staff", None),
+    ("PATCH", f"{A}/staff/{{staff_id}}", f"{A}/staff/{_X}", {"is_active": False}),
+    ("POST", f"{A}/staff/{{staff_id}}/totp", f"{A}/staff/{_X}/totp", None),
 ):
     case(_m, _path)(_console_refused(_m, _url, _body))
 

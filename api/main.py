@@ -20,6 +20,7 @@ from api.db.session import Database
 from api.events import EventBroker
 from api.llm.router import LLMRouter
 from api.optin import public as optin_public
+from api.platform import admin as platform_admin
 from api.platform import auth as platform_auth
 from api.platform import console as platform_console
 from api.webhooks import meta as meta_webhook
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(optin_public.router)
     app.include_router(platform_auth.router)
     app.include_router(platform_console.router)
+    app.include_router(platform_admin.router)
     return app
 
 
