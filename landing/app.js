@@ -3,7 +3,7 @@
   "use strict";
 
   // Where "Book a demo" goes. Empty: the buttons scroll to the closing section instead.
-  var DEMO_URL = "";
+  var DEMO_URL = "https://calendly.com/hello-hmhlabz/heyozo-20-mins-call-demo";
 
   // Sub-domains that are not client dashboards.
   var RESERVED = ["api", "go", "status", "www", "admin"];
