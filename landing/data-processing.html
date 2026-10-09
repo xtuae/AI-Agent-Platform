@@ -43,12 +43,12 @@
       <p>This page describes how <a href="https://hmhlabz.com" rel="noopener">HMH Labz LLP</a> processes personal data when a business (“the client”) uses Heyozo. The client is the data fiduciary (controller) for its customers' data; HMH Labz is its data processor. Each client also receives a description generated from its own live configuration with its contract.</p>
 
       <h2>Purpose</h2>
-      <p>An automated WhatsApp assistant answers the client's customers on the client's WhatsApp number, records what they ask for, and hands conversations to the client's staff when needed. The client's staff use a web dashboard to see and act on the same data.</p>
+      <p>An automated assistant answers the client's customers on the client's WhatsApp number and, if the client has one, its Telegram bot, records what they ask for, and hands conversations to the client's staff when needed. The client's staff use a web dashboard to see and act on the same data.</p>
 
       <h2>Data subjects and personal data</h2>
-      <p>Data subjects: the client's customers who message its WhatsApp number or are imported from its records, and the client's staff who sign in to the dashboard.</p>
+      <p>Data subjects: the client's customers who message its WhatsApp number or Telegram bot or are imported from its records, and the client's staff who sign in to the dashboard.</p>
       <ul>
-        <li>WhatsApp number and profile name; name, area, address note and language when given.</li>
+        <li>WhatsApp number and profile name, or Telegram user ID, username and display name; name, area, address note and language when given.</li>
         <li>Message content in both directions. Voice notes are transcribed and only the transcript is kept.</li>
         <li>Marketing consent and its evidence: the exact wording shown, the time and the source.</li>
         <li>Depending on the features the client uses: orders (items, quantities, delivery note, date and status), prepaid coupons, appointments, and campaign delivery and replies.</li>
@@ -74,6 +74,7 @@
         <tbody>
           <tr><td>Amazon Web Services, Inc.</td><td>Hosts the application and database (Amazon EC2).</td><td>United States (us-east-1)</td></tr>
           <tr><td>Meta Platforms Ireland Ltd (WhatsApp Business Platform)</td><td>Carries every WhatsApp message to and from customers, on the business's own WhatsApp Business Account.</td><td>Meta's global infrastructure</td></tr>
+          <tr><td>Telegram (Telegram Bot API), only for clients who connect a Telegram bot</td><td>Carries every Telegram message to and from customers who started the business's own bot.</td><td>Telegram's global infrastructure</td></tr>
           <tr><td>Google LLC (Gemini API)</td><td>Generates the assistant's replies and transcribes voice notes. Receives the conversation text needed for each reply, under Google's paid API terms.</td><td>Google's global infrastructure</td></tr>
           <tr><td>OpenRouter, Inc.</td><td>Back-up route to a comparable model, used only when the Gemini API is unavailable.</td><td>United States</td></tr>
           <tr><td>Cloudflare, Inc.</td><td>DNS for heyozo.com, and storage of encrypted backups (R2). Message content does not pass through Cloudflare's network in normal operation.</td><td>Global (DNS); backups as configured</td></tr>
@@ -83,8 +84,8 @@
       <h2>Security measures</h2>
       <ul>
         <li>Each client's data is isolated in the database by row-level security enforced by PostgreSQL; the application connects as a role that cannot bypass it, and every route is tested for cross-client access.</li>
-        <li>Inbound WhatsApp webhooks are verified by Meta's signature before they are processed.</li>
-        <li>WhatsApp access tokens are encrypted at rest. No token, password or message content is written to logs.</li>
+        <li>Inbound WhatsApp webhooks are verified by Meta's signature, and Telegram webhooks by a per-bot secret, before they are processed.</li>
+        <li>WhatsApp access tokens and Telegram bot tokens are encrypted at rest. No token, password or message content is written to logs.</li>
         <li>Dashboard sign-in with per-person accounts and roles; HMH Labz staff use a separate console with two-factor authentication.</li>
         <li>TLS for all traffic. Only web traffic reaches the server; administration is by key-only SSH on a non-standard port, with automatic security updates.</li>
         <li>Nightly backups, encrypted before upload with a key kept off the server, retained 30 days; restores are tested.</li>
@@ -95,7 +96,7 @@
       <p>Records are kept for the life of the contract, then deleted or returned on the client's instruction. A shorter automatic period can be agreed and configured. Backups expire after 30 days.</p>
 
       <h2>International transfers</h2>
-      <p>The application and database are hosted in the United States. Model providers and Meta may process data in other countries. Transfers are made only as the DPDP Act and the client's applicable law permit, and the client is told where its data is processed.</p>
+      <p>The application and database are hosted in the United States. Model providers, Meta and Telegram may process data in other countries. Transfers are made only as the DPDP Act and the client's applicable law permit, and the client is told where its data is processed.</p>
 
       <h2>Requests from customers</h2>
       <p>The client can find, correct and opt out a customer from its dashboard. Deletion of an individual's data is carried out by HMH Labz on the client's written instruction. Contact <a href="mailto:hello@hmhlabz.com">hello@hmhlabz.com</a>.</p>

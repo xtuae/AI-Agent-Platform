@@ -152,5 +152,28 @@ def test_0009_backfills_identities_and_refuses_to_orphan_telegram(
     _without_telegram(url)
 
 
+def test_check_constraints_carry_the_names_the_models_declare(
+    settings: Settings, migrated: None
+) -> None:
+    """0010: no `ck_<t>_ck_<t>_…` left; every model check constraint exists under its name."""
+    from api.db.base import Base
+
+    assert settings.migrations_database_url is not None
+    (rows,) = _sql(
+        str(settings.migrations_database_url),
+        "SELECT conname FROM pg_constraint WHERE contype = 'c' "
+        "AND connamespace = 'public'::regnamespace",
+    )
+    names = {r[0] for r in rows}
+    assert not [n for n in names if "_ck_" in n]
+    declared = {
+        str(c.name)
+        for t in Base.metadata.tables.values()
+        for c in t.constraints
+        if c.__class__.__name__ == "CheckConstraint" and c.name
+    }
+    assert declared <= names, sorted(declared - names)
+
+
 def test_single_head() -> None:
     assert len(ScriptDirectory.from_config(alembic_config()).get_heads()) == 1

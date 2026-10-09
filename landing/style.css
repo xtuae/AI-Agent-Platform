@@ -225,6 +225,17 @@ dialog label { display: block; font-weight: 500; margin-bottom: 8px; font-size: 
   .link { padding: 0 8px; font-size: 14px; }
   .chat { min-height: 0; }
 }
+/* Arabic labels are longer: below ~420px the header must tighten or the page scrolls sideways */
+@media (max-width: 420px) {
+  .top-in { gap: 6px; }
+  .top-nav { gap: 0; }
+  .link { padding: 0 6px; font-size: 13px; }
+  .top-nav .btn-sm { padding: 0 10px; font-size: 13px; }
+}
+@media (max-width: 370px) {
+  .link { padding: 0 4px; }
+  .top-nav .btn-sm { padding: 0 8px; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; }
   .js [data-reveal], .js .row .snippet .msg { opacity: 1; transform: none; }

@@ -76,9 +76,13 @@ class KillableProxy:
 @pytest.fixture
 async def proxied_db(settings: Settings) -> AsyncIterator[tuple[Database, KillableProxy]]:
     url = settings.database_url
-    proxy = KillableProxy(url.hosts()[0]["host"] or "", url.hosts()[0]["port"] or 5432)
+    host, port = url.hosts()[0]["host"] or "", url.hosts()[0]["port"] or 5432
+    proxy = KillableProxy(host, port)
     await proxy.start()
-    dsn = str(url).replace(f":{url.hosts()[0]['port']}/", f":{proxy.port}/")
+    # host AND port: the proxy listens on 127.0.0.1, which is not where Postgres is when the
+    # database is another container (the test runner) rather than localhost (GitHub CI)
+    dsn = str(url).replace(f"@{host}:{port}/", f"@127.0.0.1:{proxy.port}/")
+    assert f":{proxy.port}/" in dsn
     db = Database(settings.model_copy(update={"db_connect_timeout_s": 1.0}), url=dsn)
     try:
         yield db, proxy
