@@ -1,4 +1,4 @@
-// The HMH Labz platform console (admin.hmhagents.com, or /console locally). Loaded as its own chunk:
+// The HMH Labz platform console (admin.heyozo.com, or /console locally). Loaded as its own chunk:
 // a tenant dashboard never downloads it. Every figure comes from the server; the console only
 // formats. Cross-tenant data is read tenant by tenant under RLS on the server.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

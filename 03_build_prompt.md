@@ -139,7 +139,7 @@ Build:
 - docker-compose.yml with caddy, api, worker, scheduler, postgres (pgvector/pgvector:pg16),
   redis. CPU and memory limits per 01_architecture.md §3.1. Health checks on every service.
 - docker-compose.override.yml for local dev: hot reload, ports exposed to localhost only.
-- Caddyfile: api.hmhagents.com reverse proxies to api:8000; *.hmhagents.com serves
+- Caddyfile: api.heyozo.com reverse proxies to api:8000; *.heyozo.com serves
   dashboard/dist with SPA fallback; automatic TLS; security headers; rate limit on /api/v1/auth/*.
 - FastAPI skeleton with lifespan-managed async engine and Redis pool, structlog JSON logging with a
   correlation-id middleware, and GET /health returning {status, db, redis, version, git_sha}.
@@ -301,7 +301,7 @@ PHASE 5 — Getting their data in, and knowing what everything costs.
   source. This is the TDRA/PDPL evidence trail.
 - Costs screen: message spend by day and category against the cap, LLM cost (HMH-internal view only),
   and a monthly statement view that reconciles to Meta's own statement.
-- Platform console at admin.hmhagents.com: all tenants, usage, margin per tenant, health, and the
+- Platform console at admin.heyozo.com: all tenants, usage, margin per tenant, health, and the
   reimbursement ledger for tenants inside a borne-by-HMH period.
 
 Acceptance:
@@ -321,7 +321,7 @@ PHASE 6 — Make it survivable.
 - Alerting to your own WhatsApp number via the platform: webhook 5xx rate, ARQ queue depth > 500,
   LLM failover triggered, Meta quality rating change, tenant at 80% of message cap, disk > 80%,
   backup failed.
-- Netdata or Uptime Kuma on status.hmhagents.com behind basic auth; external UptimeRobot check on
+- Netdata or Uptime Kuma on status.heyozo.com behind basic auth; external UptimeRobot check on
   /health for independent uptime evidence against the contracted 99.5%.
 - Load test with locust: 200 concurrent conversations, LLM stubbed at realistic latency. Record p50
   and p95 and the resource ceiling. Document the real tenant capacity of the box.
@@ -366,7 +366,7 @@ These block the build and none of them are technical:
 1. **Meta Business Manager verified** for HMH Labz, and Tech Provider status applied for. This can
    take days to weeks and is the single most likely cause of a missed go-live date. Start it first.
 2. **Aquamena's phone number** confirmed and *not* registered on the consumer WhatsApp app.
-3. **Domain** — `hmhagents.com` or similar, on Cloudflare, with a wildcard DNS record.
+3. **Domain** — `heyozo.com` or similar, on Cloudflare, with a wildcard DNS record.
 4. **API keys** — Google AI Studio and OpenRouter, each with a spend cap set at the provider.
 5. **Aquamena's Excel file**, the real one, messy.
 6. **Confirmed coupon structure** — particularly the AED 225 book and the AED 110 Ajman offer, which

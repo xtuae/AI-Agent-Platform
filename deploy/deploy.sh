@@ -17,6 +17,12 @@ set -euo pipefail
 REF="${1:-origin/main}"
 cd "$(dirname "$0")/.."
 COMPOSE=(docker compose -f docker-compose.yml)
+# a smaller box adds a sizing override, e.g. COMPOSE_OVERRIDE=docker-compose.aws.yml (DEPLOY_GUIDE.md Appendix A)
+OVERRIDE=$(grep -E '^COMPOSE_OVERRIDE=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)
+if [ -n "$OVERRIDE" ]; then
+  [ -f "$OVERRIDE" ] || { echo "!! COMPOSE_OVERRIDE=$OVERRIDE in .env, but the file is missing" >&2; exit 1; }
+  COMPOSE+=(-f "$OVERRIDE")
+fi
 
 echo "== fetch and check out $REF"
 git fetch --quiet origin

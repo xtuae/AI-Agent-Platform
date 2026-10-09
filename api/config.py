@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     stream_heartbeat_s: float = Field(default=15.0, gt=0)
 
     # --- opt-in consent pages and the platform console (Phase 5) ---
-    # Public origin of the /q/<code> consent pages (e.g. https://go.hmhagents.com); QR codes point
+    # Public origin of the /q/<code> consent pages (e.g. https://go.heyozo.com); QR codes point
     # here. Unset → the origin the dashboard request came in on.
     optin_base_url: str | None = None
     optin_rate_limit: int = Field(default=30, ge=1)  # "Continue" taps per client, per window

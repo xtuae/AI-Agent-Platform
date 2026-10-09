@@ -66,8 +66,8 @@ outbound campaign throughput, which is governed by Meta's rate limits, not your 
                             ▼
               ┌──────────────────────────────┐
               │   Caddy 2  (TLS, :80/:443)   │
-              │  api.hmhagents.com           │
-              │  *.hmhagents.com  (tenants)  │
+              │  api.heyozo.com           │
+              │  *.heyozo.com  (tenants)  │
               └──────┬──────────────┬────────┘
                      │              │
         static files │              │ reverse proxy
@@ -406,8 +406,8 @@ two or three charts that earn their place.
 
 | Surface | Host | Who | Sees |
 |---|---|---|---|
-| Tenant dashboard | `aquamena.hmhagents.com` | Zameer and his team | Their own data only |
-| Platform console | `admin.hmhagents.com` | HMH Labz | All tenants, usage, billing, health |
+| Tenant dashboard | `aquamena.heyozo.com` | Zameer and his team | Their own data only |
+| Platform console | `admin.heyozo.com` | HMH Labz | All tenants, usage, billing, health |
 
 Same bundle, role-gated routes, tenant resolved from the JWT — never from the URL.
 
@@ -530,7 +530,7 @@ pull && up -d` → `alembic upgrade head` → smoke-test `/health`. Rollback is
 
 ### 11.3 Monitoring and alerts
 
-- **Netdata** (or Uptime Kuma if you want it lighter) on `status.hmhagents.com`, basic-auth'd.
+- **Netdata** (or Uptime Kuma if you want it lighter) on `status.heyozo.com`, basic-auth'd.
 - **Alerts to your WhatsApp** via the platform's own number — pleasing and practical:
   webhook 5xx rate, ARQ queue depth > 500, LLM failover triggered, Meta quality rating dropped,
   tenant approaching message cap, disk > 80%, failed backup.

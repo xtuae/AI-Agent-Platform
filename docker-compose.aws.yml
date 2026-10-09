@@ -1,0 +1,68 @@
+# AWS free-tier sizing: an override for docker-compose.yml on an m7i-flex.large (2 vCPU, 8 GB).
+# docker-compose.yml is sized for a 4 CPU / 16 GB box (~7.5 GB of limits); this trims it to
+# ~5 GB so the OS, Docker and the dashboard build in deploy.sh still fit, with the 4 GB swap from
+# DEPLOY_GUIDE.md 5.9 as headroom. Fine for testing and a handful of tenants, not for load.
+#
+# Enabled by COMPOSE_OVERRIDE=docker-compose.aws.yml in .env (deploy.sh reads it) and by the `dc`
+# alias in DEPLOY_GUIDE.md Appendix A. To scale up: move to a bigger box, delete that .env line,
+# fix the alias, and run deploy/deploy.sh. Compose merges `limits` key by key, but a `command`
+# here replaces the base one whole, so every flag is repeated.
+
+services:
+  caddy:
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  api:
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+
+  worker:
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+
+  scheduler:
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 384M }
+
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - max_connections=100
+      - -c
+      - password_encryption=scram-sha-256
+    shm_size: 256m
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 2G }
+
+  redis:
+    command:
+      - redis-server
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 384M }
+
+  uptime-kuma:
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 256M }
