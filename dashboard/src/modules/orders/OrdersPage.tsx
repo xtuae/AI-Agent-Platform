@@ -11,7 +11,7 @@ import { Empty, ErrorNote, PageTitle, Spinner } from "@/components/ui/misc";
 import { Sheet } from "@/components/ui/sheet";
 import { api, ApiError } from "@/lib/api";
 import { useCan } from "@/lib/auth";
-import { aed, dateLabel, dateTime, label, localToday, phone, STATUS_LABEL } from "@/lib/format";
+import { aed, contactHandle, dateLabel, dateTime, label, localToday, STATUS_LABEL } from "@/lib/format";
 import { usePollInterval } from "@/lib/stream";
 import type { CustomerDetail, CustomerRow, Order, OrderDetail, OrderStatus, Page, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -144,7 +144,7 @@ export default function OrdersPage() {
                 <button className="w-full px-4 py-3 text-left" onClick={() => setOpenId(o.id)}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">
-                      #{o.order_no} · {o.customer.name ?? phone(o.customer.wa_id)}
+                      #{o.order_no} · {o.customer.name ?? contactHandle(o.customer)}
                     </span>
                     <StatusBadge status={o.status} />
                   </div>
@@ -181,7 +181,7 @@ export default function OrdersPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     {o.customer.name ?? "—"}
-                    <div className="text-xs text-muted">{phone(o.customer.wa_id)}</div>
+                    <div className="text-xs text-muted">{contactHandle(o.customer)}</div>
                   </td>
                   <td className="px-4 py-2.5">{o.area ?? "—"}</td>
                   <td className="px-4 py-2.5">
@@ -266,7 +266,7 @@ function OrderDrawer({ id, onClose }: { id: string | null; onClose: () => void }
         }
       }}
       title={o ? `Order #${o.order_no}` : "Order"}
-      description={o ? `${o.customer.name ?? phone(o.customer.wa_id)} · ${dateTime(o.created_at)}` : undefined}
+      description={o ? `${o.customer.name ?? contactHandle(o.customer)} · ${dateTime(o.created_at)}` : undefined}
       footer={
         o && canEdit && o.next_statuses.length ? (
           <div className="flex flex-wrap gap-2">
@@ -330,9 +330,13 @@ function OrderDrawer({ id, onClose }: { id: string | null; onClose: () => void }
             <div>
               <p className="text-xs text-muted">Customer</p>
               <p>{o.customer.name ?? "—"}</p>
-              <a className="text-accent-ink" href={`tel:+${o.customer.wa_id}`}>
-                {phone(o.customer.wa_id)}
-              </a>
+              {o.customer.wa_id ? (
+                <a className="text-accent-ink" href={`tel:+${o.customer.wa_id}`}>
+                  {contactHandle(o.customer)}
+                </a>
+              ) : (
+                <p className="text-ink-2">{contactHandle(o.customer)}</p>
+              )}
             </div>
             <div>
               <p className="text-xs text-muted">Area</p>

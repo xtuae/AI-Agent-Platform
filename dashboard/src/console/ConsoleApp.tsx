@@ -384,8 +384,14 @@ function TenantPage({ role }: { role: StaffRole }) {
           <ul className="mt-3 space-y-1 text-ink-2">
             {t.channels.map((c, i) => (
               <li key={i}>
-                {c.display_phone ?? "number not set"} · quality {c.quality_rating ?? "unknown"} · tier {c.messaging_limit_tier ?? "unknown"}
-                {c.token_expires_at ? ` · token until ${dateLabel(c.token_expires_at)}` : ""}
+                {c.kind === "telegram" ? (
+                  <>Telegram bot {c.telegram_username ? `@${c.telegram_username}` : ""}</>
+                ) : (
+                  <>
+                    {c.display_phone ?? "number not set"} · quality {c.quality_rating ?? "unknown"} · tier {c.messaging_limit_tier ?? "unknown"}
+                    {c.token_expires_at ? ` · token until ${dateLabel(c.token_expires_at)}` : ""}
+                  </>
+                )}
                 {c.is_active ? "" : " · inactive"}
               </li>
             ))}

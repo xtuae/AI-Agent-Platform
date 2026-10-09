@@ -1,7 +1,7 @@
 # Phase 8 — Channel Layer and Telegram
 ## Spec change for the Heyozo platform (HMH Labz LLP)
 
-**Version** 1.0 (draft for approval) · 9 October 2026 · extends `01_architecture.md` §4–§5,
+**Version** 1.1 (approved 9 October 2026; built — see §14 for what changed in the build) · 9 October 2026 · extends `01_architecture.md` §4–§5,
 `03_build_prompt.md` Phase 1 and the console admin API (`api/platform/admin.py`). Independent of
 `05_per_tenant_meta_app.md`, but shares its `channel_key` idea (§4.1 says how the two fit).
 
@@ -614,3 +614,34 @@ downgrade refuses with a Telegram channel present.
   sending media from the agent.
 * Customer merge across channels; renaming `wamid`; moving `customers.wa_id` reads to identities.
 * Deploying. The user decides when.
+
+---
+
+## 14. As built — where the build differs from this plan
+
+Decisions D1–D7 were approved as recommended. Differences found while building:
+
+* **WhatsApp identities are kept by a trigger.** `customers.wa_id` → `customer_identities`
+  ('whatsapp') is maintained by `app_sync_whatsapp_identity()` on insert/update of `wa_id`, so
+  every existing path that creates or edits a customer (ingest, contacts, imports, tests) stays
+  correct without changes. Telegram identities are written by `api/channels/inbound.py`.
+* **The Meta ingest keeps its own persist path** (byte-identical behaviour, as §3.1 rule 2
+  requires); `persist_inbound` in `api/channels/inbound.py` is used by Telegram and is the path
+  for future channels.
+* **A long Telegram reply is one `messages` row** (the whole text), recorded under the id of its
+  first part; Telegram has no delivery receipts to reconcile per part.
+* **Prompts:** the released v1 templates stay verbatim for WhatsApp. On another channel the same
+  release is compiled with "WhatsApp" replaced by the channel's name, and the turn records
+  `prompt_version` with an `@telegram` suffix. The agent's 700-character reply limit is unchanged.
+* **The request log redacts the channel key** (`/webhook/telegram/{channel_key}`); found by the
+  "secrets never logged" test.
+* **Migration constraint names use `op.f()`**: the repo's naming convention otherwise prefixes
+  explicit names twice (existing constraints such as `ck_optin_visits_ck_optin_visits_claim`
+  already carry the doubled name; left as they are).
+* **Downgrade** refuses while Telegram channels or number-less customers exist, as planned; the
+  migration round-trip test first removes the Telegram rows earlier tests created.
+* **Campaign block-rate guard** is evaluated after every send once 30 sends exist (not only after a
+  blocked one), so it does not depend on recipient order.
+* **Escalation alerts** for a Telegram conversation go out from the tenant's WhatsApp number (if
+  any), naming the customer as `@username (Telegram)`; with no number, the dashboard only.
+* `api/core/middleware.py` webhook metrics and the Meta buffer/watchdog stay Meta-only.

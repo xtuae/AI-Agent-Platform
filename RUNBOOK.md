@@ -68,7 +68,7 @@ deploy/deploy.sh <previous sha>
 ```
 
 The schema is **not** downgraded. Old code runs on a schema that only gained tables or columns
-(every migration so far, 0001–0008). If a release's migration dropped or renamed something, its
+(every migration so far, 0001–0009). If a release's migration dropped or renamed something, its
 commit message says so and how to roll back; in that case restore is the fallback (below).
 
 ## Backups and restore
@@ -128,6 +128,36 @@ stored encrypted. Then revoke the old token in Meta Business Manager.
    on the tenant row (console margin and reimbursement ledger read them).
 7. `python -m api.scripts.dpa --slug <slug> > dpa-<slug>.md` — review, send with the contract.
 
+## Connect a client's Telegram bot
+
+Needs `PUBLIC_API_BASE_URL` in `.env` (e.g. `https://api.heyozo.com`): Telegram is told to
+deliver to `<that>/webhook/telegram/<channel_key>`.
+
+What the client does (2 minutes, in Telegram):
+
+1. Open **@BotFather** → `/newbot` → a display name, then a username ending in `bot`.
+2. Optionally `/setdescription`, `/setuserpic`, and `/setjoingroups` → Disable (the agent only
+   answers private chats).
+3. Send HMH Labz the token BotFather shows (`123456789:AA…`) through the agreed secure channel —
+   not email in clear.
+
+What you do: Console → the client → Setup → **Telegram bot** → Connect a bot → paste → Check and
+connect. The server checks the token with Telegram, stores it encrypted, and registers the
+webhook with a fresh secret. The card then shows `@username` and "Receiving since …".
+
+Then the client shares `t.me/<their bot>` or a consent-page QR (the page offers "Continue on
+Telegram" once a bot is live). Customers press **Start** once; after that the agent answers there.
+There is no 24-hour window and no per-message cost on Telegram; campaigns go only to opted-in
+customers who started the bot and have not blocked it.
+
+- **Token leaked / rotated**: client sends `/revoke` to BotFather and the new token → Setup →
+  Replace token (must be the same bot). The webhook gets a new secret at the same time.
+- **"Webhook not delivering" / alert "Telegram bot of X: …"**: Setup → Re-register. If that
+  fails, check `PUBLIC_API_BASE_URL` and that `api.<domain>` is reachable on 443 from outside.
+- **Deactivate** removes the webhook at Telegram (so it stops retrying); Activate sets it again.
+- `TELEGRAM_CHECK_SOURCE_IP=true` additionally requires Telegram's published address ranges.
+  Leave it off unless the API sees real client addresses (behind a proxy it sees the proxy's).
+
 ## Alerts: what each one means
 
 | Alert | Means | Do |
@@ -140,6 +170,7 @@ stored encrypted. Then revoke the old token in Meta Business Manager.
 | Quality rating changed | Meta moved a number's rating | YELLOW pauses marketing, RED cancels it — see next section. |
 | Tenant at 80% of cap | a tenant's message spend nears its cap | Tell the client; raise the cap only with their written OK. |
 | Disk > 80% | the volume disk is filling | `docker system df`; prune old images: `docker image prune -a --filter until=168h`. |
+| Telegram bot of X: … | a bot's webhook is not pointed here, Telegram reports delivery errors, or > 100 updates are waiting | Console → client → Setup → Re-register. Updates wait at Telegram for 24 h, so nothing is lost if fixed within that. |
 | Backup failed / none in 26 h | last night's backup did not complete | Run it by hand (above) and read the error; check bucket keys and disk. |
 
 ## Meta quality-rating recovery

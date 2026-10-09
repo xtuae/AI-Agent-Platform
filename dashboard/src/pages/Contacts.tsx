@@ -10,7 +10,7 @@ import { Empty, ErrorNote, PageTitle, Spinner } from "@/components/ui/misc";
 import { Sheet } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import { useAuth, useCan } from "@/lib/auth";
-import { dateTime, label, phone, STATUS_LABEL } from "@/lib/format";
+import { contactHandle, dateTime, label, STATUS_LABEL } from "@/lib/format";
 import { usePollInterval } from "@/lib/stream";
 import type { CustomerDetail, CustomerRow, OptIn, Page } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -76,8 +76,8 @@ export default function ContactsPage() {
                   onClick={() => setOpenId(c.id)}
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{c.name ?? phone(c.wa_id)}</p>
-                    <p className="text-xs text-muted">{phone(c.wa_id)}</p>
+                    <p className="truncate font-medium">{c.name ?? contactHandle(c)}</p>
+                    <p className="text-xs text-muted">{contactHandle(c)}</p>
                   </div>
                   <div className="text-right md:text-left">
                     <Badge tone={OPT_TONE[c.opt_in_status]}>{label(STATUS_LABEL, c.opt_in_status)}</Badge>
@@ -153,8 +153,8 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
         }
       }}
       wide
-      title={d ? (d.name ?? phone(d.wa_id)) : "Customer"}
-      description={d ? `${phone(d.wa_id)}${d.area ? ` · ${d.area}` : ""}` : undefined}
+      title={d ? (d.name ?? contactHandle(d)) : "Customer"}
+      description={d ? `${contactHandle(d)}${d.area ? ` · ${d.area}` : ""}` : undefined}
     >
       {!d ? (
         <div className="flex justify-center py-10">
@@ -197,6 +197,18 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                   <dd>{d.language ?? "—"}</dd>
                   <dt className="text-muted">Source</dt>
                   <dd>{d.source ?? "—"}</dd>
+                  <dt className="text-muted">Channels</dt>
+                  <dd className="flex flex-wrap gap-1.5">
+                    {d.channels.length
+                      ? d.channels.map((ch) => (
+                          <Badge key={ch.kind} tone={ch.blocked ? "warn" : "neutral"}>
+                            {ch.name}
+                            {ch.kind === "telegram" && ch.handle ? ` ${ch.handle}` : ""}
+                            {ch.blocked ? " · blocked the bot" : ""}
+                          </Badge>
+                        ))
+                      : "—"}
+                  </dd>
                 </dl>
                 {canEdit ? (
                   <Button
@@ -225,7 +237,7 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
             {d.opt_in_status === "opted_in" ? <Evidence value={d.opt_in_evidence} /> : null}
             {d.opt_in_status === "pending" ? (
               <p className="text-sm text-muted">
-                Only the customer can opt in (by replying on WhatsApp). Campaigns never reach them until then.
+                Only the customer can opt in (through a consent page, on WhatsApp or Telegram). Campaigns never reach them until then.
               </p>
             ) : null}
             {canEdit && d.opt_in_status !== "opted_out" ? (

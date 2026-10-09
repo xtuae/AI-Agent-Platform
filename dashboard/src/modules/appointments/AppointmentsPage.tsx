@@ -10,7 +10,7 @@ import { Empty, ErrorNote, PageTitle, Spinner } from "@/components/ui/misc";
 import { Sheet } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
-import { dateTime, label, localToday, phone, STATUS_LABEL } from "@/lib/format";
+import { contactHandle, dateTime, label, localToday, STATUS_LABEL } from "@/lib/format";
 import { usePollInterval } from "@/lib/stream";
 import type { CustomerDetail, CustomerRow, Page } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -199,7 +199,7 @@ export default function AppointmentsPage() {
                             <span className="block text-xs font-normal text-muted">{plusMinutes(hhmm(a.local), a.type.duration_min)}</span>
                           </span>
                           <span className="min-w-0">
-                            <span className="block truncate font-medium">{a.customer.name ?? phone(a.customer.wa_id)}</span>
+                            <span className="block truncate font-medium">{a.customer.name ?? contactHandle(a.customer)}</span>
                             <span className="block truncate text-xs text-muted">
                               {a.type.name_en} · {a.resource.name}
                               {a.subject_label ? ` · ${a.subject_label}` : ""}
@@ -273,7 +273,7 @@ function AppointmentDrawer({ id, onClose, resources }: { id: string | null; onCl
       }}
       wide
       title={a ? `${a.type.name_en} · ${dayLabel(a.local.slice(0, 10))}, ${hhmm(a.local)}` : "Appointment"}
-      description={a ? `${a.ref} · ${a.customer.name ?? phone(a.customer.wa_id)}` : undefined}
+      description={a ? `${a.ref} · ${a.customer.name ?? contactHandle(a.customer)}` : undefined}
     >
       {!a ? (
         <div className="flex justify-center py-10">
@@ -306,7 +306,7 @@ function AppointmentDrawer({ id, onClose, resources }: { id: string | null; onCl
             ) : null}
             <dt className="text-muted">{noun.charAt(0).toUpperCase() + noun.slice(1)}</dt>
             <dd>
-              {a.customer.name ?? "—"} · {phone(a.customer.wa_id)}
+              {a.customer.name ?? "—"} · {contactHandle(a.customer)}
             </dd>
             <dt className="text-muted">Booked by</dt>
             <dd>

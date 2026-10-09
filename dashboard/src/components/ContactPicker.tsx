@@ -7,7 +7,7 @@ import { Field, Input } from "@/components/ui/input";
 import { ErrorNote } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { phone } from "@/lib/format";
+import { contactHandle } from "@/lib/format";
 import type { CustomerDetail, CustomerRow, Page } from "@/lib/types";
 
 /** "customer", "client", "lead" — the singular of the tenant's contact label, lower case. */
@@ -58,9 +58,9 @@ export function ContactPicker({
     return (
       <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
         <div className="min-w-0 text-sm">
-          <p className="truncate font-medium">{value.name ?? phone(value.wa_id)}</p>
+          <p className="truncate font-medium">{value.name ?? contactHandle(value)}</p>
           <p className="text-xs text-muted">
-            {phone(value.wa_id)}
+            {contactHandle(value)}
             {value.area ? ` · ${value.area}` : ""}
           </p>
         </div>
@@ -127,9 +127,9 @@ export function ContactPicker({
           {results.data.items.map((c) => (
             <li key={c.id}>
               <button className="w-full px-3 py-2 text-left text-sm hover:bg-line/30" onClick={() => onChange(c)}>
-                <span className="font-medium">{c.name ?? phone(c.wa_id)}</span>
+                <span className="font-medium">{c.name ?? contactHandle(c)}</span>
                 <span className="ml-2 text-xs text-muted">
-                  {phone(c.wa_id)}
+                  {contactHandle(c)}
                   {c.area ? ` · ${c.area}` : ""}
                 </span>
               </button>

@@ -58,6 +58,9 @@ export interface Campaign {
   id: string;
   name: string;
   status: CampaignStatus;
+  /** WhatsApp: an approved template. Telegram: free text in `body`, no template, no cost. */
+  channel_kind: "whatsapp" | "telegram";
+  body: string | null;
   template_id: string | null;
   template_name: string | null;
   segment: Record<string, unknown> | null;

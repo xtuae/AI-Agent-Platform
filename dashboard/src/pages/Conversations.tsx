@@ -78,7 +78,7 @@ function Inbox({ selected }: { selected?: string }) {
       </div>
       <div className="relative mb-3">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" aria-hidden />
-        <Input className="pl-9" placeholder="Name or phone" aria-label="Search chats" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Input className="pl-9" placeholder="Name, phone or @username" aria-label="Search chats" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <ErrorNote error={list.error} />
       <Card className="min-h-0 flex-1 overflow-y-auto">
@@ -98,7 +98,7 @@ function Inbox({ selected }: { selected?: string }) {
                   aria-current={selected === c.id ? "page" : undefined}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium">{c.customer.name ?? phone(c.customer.wa_id)}</span>
+                    <span className="truncate font-medium">{c.customer.name ?? who(c)}</span>
                     <span className="shrink-0 text-xs text-muted">{ago(c.last_message?.at ?? c.last_inbound_at)}</span>
                   </div>
                   <p className="mt-0.5 truncate text-sm text-ink-2" dir="auto">
@@ -118,6 +118,7 @@ function Inbox({ selected }: { selected?: string }) {
                       </Badge>
                     )}
                     {c.waiting ? <Badge tone="accent">{c.waiting} unanswered</Badge> : null}
+                    {c.channel.kind !== "whatsapp" ? <Badge>{c.channel.name}</Badge> : null}
                   </div>
                 </Link>
               </li>
@@ -204,11 +205,24 @@ function ThreadView({ id }: { id: string }) {
           <ArrowLeft className="size-5" />
         </Button>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{t.customer.name ?? phone(t.customer.wa_id)}</p>
+          <p className="truncate font-medium">{t.customer.name ?? who(t)}</p>
           <p className="truncate text-xs text-muted">
-            <a href={`tel:+${t.customer.wa_id}`}>{phone(t.customer.wa_id)}</a>
+            {t.channel.kind === "whatsapp" && t.customer.wa_id ? (
+              <a href={`tel:+${t.customer.wa_id}`}>{phone(t.customer.wa_id)}</a>
+            ) : (
+              <span>
+                {t.channel.name}
+                {t.channel.handle ? ` ${t.channel.handle}` : ""}
+              </span>
+            )}
             {t.customer.area ? ` · ${t.customer.area}` : ""} ·{" "}
-            {t.window_open ? `reply window open until ${timeOnly(t.window_expires_at ?? "")}` : "reply window closed"}
+            {t.channel.blocked
+              ? "blocked the bot"
+              : !t.window_expires_at && t.window_open
+                ? "no reply window"
+                : t.window_open
+                  ? `reply window open until ${timeOnly(t.window_expires_at ?? "")}`
+                  : "reply window closed"}
           </p>
         </div>
         {canAct ? (
@@ -271,7 +285,11 @@ function ThreadView({ id }: { id: string }) {
         </div>
       ) : null}
       {canReply ? (
-        t.window_open ? (
+        t.channel.blocked ? (
+          <p className="border-t border-line px-4 py-3 text-sm text-muted">
+            This customer blocked the {t.channel.name} bot, so nothing can be sent to them there until they write again.
+          </p>
+        ) : t.window_open ? (
           <form onSubmit={submit} className="flex items-end gap-2 border-t border-line p-2">
             <Textarea
               dir="auto"
@@ -294,16 +312,27 @@ function ThreadView({ id }: { id: string }) {
           </form>
         ) : (
           <p className="border-t border-line px-4 py-3 text-sm text-muted">
-            The customer last wrote over 24 hours ago, so WhatsApp only allows an approved template here (coming with campaigns). Call them
-            instead:{" "}
-            <a className="text-accent-ink" href={`tel:+${t.customer.wa_id}`}>
-              {phone(t.customer.wa_id)}
-            </a>
+            The customer last wrote over 24 hours ago, so WhatsApp only allows an approved template here (coming with campaigns).
+            {t.customer.wa_id ? (
+              <>
+                {" "}
+                Call them instead:{" "}
+                <a className="text-accent-ink" href={`tel:+${t.customer.wa_id}`}>
+                  {phone(t.customer.wa_id)}
+                </a>
+              </>
+            ) : null}
           </p>
         )
       ) : null}
     </Card>
   );
+}
+
+/** The customer as this conversation's channel knows them, when they have no name yet. */
+function who(c: ConversationRow): string {
+  if (c.channel.kind === "whatsapp" && c.customer.wa_id) return phone(c.customer.wa_id);
+  return c.channel.handle ?? c.channel.name;
 }
 
 function BackLink({ tab }: { tab: string | null }) {
@@ -321,6 +350,8 @@ function explain(error: unknown): unknown {
       window_closed: "The 24-hour reply window has closed.",
       assigned_to_someone_else: "Someone else has this conversation.",
       whatsapp_rejected: "WhatsApp did not accept the message. Try again, or call the customer.",
+      channel_rejected: "Telegram did not accept the message. Try again in a moment.",
+      unreachable: "The customer blocked the bot, so the message cannot be delivered.",
       not_sendable: "This number is not set up to send yet. Contact HMH Labz.",
     };
     if (error.code && map[error.code]) return new Error(map[error.code]);

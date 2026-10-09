@@ -1,9 +1,10 @@
-// Console admin: create and set up clients, their modules, WhatsApp numbers and dashboard users,
-// and HMH Labz's own staff. Everything is decided on the server (roles, rules, secrets); these
-// screens only collect input and show results. Secrets travel one way: a Meta token is sent once
-// and never shown again, a staff authenticator QR is shown once and never fetched again.
+// Console admin: create and set up clients, their modules, WhatsApp numbers, Telegram bot and
+// dashboard users, and HMH Labz's own staff. Everything is decided on the server (roles, rules,
+// secrets); these screens only collect input and show results. Secrets travel one way: a Meta
+// token or bot token is sent once and never shown again, a staff authenticator QR is shown once
+// and never fetched again.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Download, KeyRound, Phone, Plus, ShieldCheck, UserPlus } from "lucide-react";
+import { Bot, Check, Copy, Download, KeyRound, Phone, Plus, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +34,17 @@ interface Catalogue {
 }
 interface ChannelAdmin {
   id: string;
-  phone_number_id: string;
+  kind: "whatsapp" | "telegram";
+  phone_number_id: string | null;
   waba_id: string | null;
   display_phone: string | null;
   is_active: boolean;
   has_token: boolean;
   token_expires_at: string | null;
   quality_rating: string | null;
+  telegram_username: string | null;
+  webhook_set_at: string | null;
+  webhook_error: string | null;
 }
 interface UserAdmin {
   id: string;
@@ -107,11 +112,19 @@ const REASON: Record<string, string> = {
   last_owner: "There must always be one active owner.",
   not_yourself: "Ask another owner to change your own role or access.",
   meta_rejected: "Meta did not accept that token. Nothing was changed.",
+  telegram_token_invalid: "That does not look like a bot token. Copy the whole line BotFather sent, like 123456789:AA…",
+  telegram_rejected: "Telegram did not accept that token. Nothing was changed.",
+  bot_taken: "That bot is already connected to a client.",
+  different_bot: "That token is for a different bot. Use the new token of this same bot (BotFather → /revoke).",
+  public_api_base_url_missing: "The server has no public address set (PUBLIC_API_BASE_URL), so Telegram cannot reach it.",
+  channel_inactive: "Activate the bot first.",
+  not_whatsapp: "That only applies to WhatsApp numbers.",
 };
 
 function explain(error: unknown): unknown {
   if (error instanceof ApiError && error.code && REASON[error.code]) {
-    const extra = error.code === "meta_rejected" ? ` (${(error.detail as { message?: string }).message ?? ""})` : "";
+    const message = (error.detail as { message?: string }).message;
+    const extra = (error.code === "meta_rejected" || error.code === "telegram_rejected") && message ? ` (${message})` : "";
     return new Error(REASON[error.code] + extra);
   }
   if (error instanceof ApiError && error.code === "modules") {
@@ -385,6 +398,7 @@ export function ClientSetupPage({ role }: { role: StaffRole }) {
         <ProfileCard t={t} canEdit={canEdit} qk={key} />
         <ModulesCard t={t} canEdit={canEdit} qk={key} />
         <ChannelsCard t={t} canEdit={canEdit} qk={key} />
+        <TelegramCard t={t} canEdit={canEdit} qk={key} />
         <UsersCard t={t} canEdit={canEdit} qk={key} />
         <DocumentsCard t={t} />
       </div>
@@ -594,6 +608,7 @@ function ChannelsCard({ t, canEdit, qk }: { t: TenantAdmin; canEdit: boolean; qk
   const toggle = useAdminMutation(qk, (c: ChannelAdmin) =>
     consoleApi<TenantAdmin>(`${A}/channels/${c.id}`, { method: "PATCH", body: { is_active: !c.is_active } }),
   );
+  const numbers = t.channels.filter((c) => c.kind === "whatsapp");
   return (
     <Card>
       <CardHeader
@@ -607,11 +622,11 @@ function ChannelsCard({ t, canEdit, qk }: { t: TenantAdmin; canEdit: boolean; qk
           ) : null
         }
       />
-      {t.channels.length === 0 ? (
+      {numbers.length === 0 ? (
         <Empty title="No number connected">Add the number's Phone number ID from Meta's WhatsApp Manager, then its token.</Empty>
       ) : (
         <ul className="divide-y divide-line px-4">
-          {t.channels.map((c) => {
+          {numbers.map((c) => {
             const tok = tokenState(c);
             return (
               <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
@@ -646,6 +661,143 @@ function ChannelsCard({ t, canEdit, qk }: { t: TenantAdmin; canEdit: boolean; qk
       <AddChannelSheet open={adding} onOpenChange={setAdding} tenantId={t.profile.id} qk={qk} />
       <TokenSheet channel={tokenFor} onClose={() => setTokenFor(null)} qk={qk} />
     </Card>
+  );
+}
+
+function webhookState(c: ChannelAdmin): { tone: "good" | "warn" | "bad"; text: string } {
+  if (!c.is_active) return { tone: "warn", text: "Webhook off" };
+  if (c.webhook_error) return { tone: "bad", text: c.webhook_error };
+  if (!c.webhook_set_at) return { tone: "bad", text: "Webhook not registered" };
+  return { tone: "good", text: `Receiving since ${dateLabel(c.webhook_set_at)}` };
+}
+
+function TelegramCard({ t, canEdit, qk }: { t: TenantAdmin; canEdit: boolean; qk: Qk }) {
+  const bots = t.channels.filter((c) => c.kind === "telegram");
+  const [sheet, setSheet] = useState<{ bot: ChannelAdmin | null } | null>(null);
+  const toggle = useAdminMutation(qk, (c: ChannelAdmin) =>
+    consoleApi<TenantAdmin>(`${A}/channels/${c.id}`, { method: "PATCH", body: { is_active: !c.is_active } }),
+  );
+  const reregister = useAdminMutation(qk, (c: ChannelAdmin) =>
+    consoleApi<TenantAdmin>(`${A}/channels/${c.id}/telegram-webhook`, { method: "POST" }),
+  );
+  return (
+    <Card>
+      <CardHeader
+        title="Telegram bot"
+        subtitle="The client's own bot, made with @BotFather. Customers press Start once; then the agent answers there too."
+        action={
+          canEdit && bots.length === 0 ? (
+            <Button size="sm" variant="secondary" onClick={() => setSheet({ bot: null })}>
+              <Plus aria-hidden /> Connect a bot
+            </Button>
+          ) : null
+        }
+      />
+      {bots.length === 0 ? (
+        <Empty title="No bot connected">
+          In Telegram, the client opens @BotFather, sends /newbot and picks a name; BotFather replies with a token. Paste it here.
+        </Empty>
+      ) : (
+        <ul className="divide-y divide-line px-4">
+          {bots.map((c) => {
+            const hook = webhookState(c);
+            return (
+              <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                <Bot className="size-4 text-muted" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{c.telegram_username ? `@${c.telegram_username}` : "Bot"}</p>
+                  {c.telegram_username ? <p className="text-xs text-muted">t.me/{c.telegram_username}</p> : null}
+                </div>
+                <Badge tone={hook.tone}>{hook.text}</Badge>
+                {!c.is_active ? <Badge>Inactive</Badge> : null}
+                {canEdit ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setSheet({ bot: c })}>
+                      <KeyRound aria-hidden /> Replace token
+                    </Button>
+                    {c.is_active ? (
+                      <Button size="sm" variant="ghost" disabled={reregister.isPending} onClick={() => reregister.mutate(c)}>
+                        <RefreshCw aria-hidden /> Re-register
+                      </Button>
+                    ) : null}
+                    <Button size="sm" variant="ghost" disabled={toggle.isPending} onClick={() => toggle.mutate(c)}>
+                      {c.is_active ? "Deactivate" : "Activate"}
+                    </Button>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="px-4 pb-3">
+        <ErrorNote error={explain(toggle.error ?? reregister.error)} />
+      </div>
+      <BotTokenSheet target={sheet} onClose={() => setSheet(null)} tenantId={t.profile.id} qk={qk} />
+    </Card>
+  );
+}
+
+function BotTokenSheet({
+  target,
+  onClose,
+  tenantId,
+  qk,
+}: {
+  target: { bot: ChannelAdmin | null } | null;
+  onClose: () => void;
+  tenantId: string;
+  qk: Qk;
+}) {
+  const [token, setToken] = useState("");
+  const close = () => {
+    setToken("");
+    onClose();
+  };
+  const bot = target?.bot ?? null;
+  const save = useAdminMutation(
+    qk,
+    () =>
+      bot
+        ? consoleApi<TenantAdmin>(`${A}/channels/${bot.id}/telegram-token`, { method: "PUT", body: { token: token.trim() } })
+        : consoleApi<TenantAdmin>(`${A}/tenants/${tenantId}/telegram`, { method: "POST", body: { token: token.trim() } }),
+    close,
+  );
+  return (
+    <Sheet
+      open={target !== null}
+      onOpenChange={(v) => (v ? null : close())}
+      title={bot ? "Replace the bot token" : "Connect a Telegram bot"}
+      description={
+        bot
+          ? `For @${bot.telegram_username ?? ""}. After /revoke in BotFather. Checked with Telegram before it is saved.`
+          : "Checked with Telegram before it is saved. The server then tells Telegram where to deliver messages."
+      }
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={close}>
+            Cancel
+          </Button>
+          <Button form="bot-token" type="submit" disabled={save.isPending || token.trim().length < 36}>
+            {save.isPending ? "Checking with Telegram…" : bot ? "Save token" : "Check and connect"}
+          </Button>
+        </div>
+      }
+    >
+      <form
+        id="bot-token"
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(undefined);
+        }}
+      >
+        <Field label="Bot token from @BotFather" hint="Encrypted on the server and never shown again, here or anywhere.">
+          <Input type="password" autoComplete="off" spellCheck={false} required value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456789:AA…" />
+        </Field>
+        <ErrorNote error={explain(save.error)} />
+      </form>
+    </Sheet>
   );
 }
 

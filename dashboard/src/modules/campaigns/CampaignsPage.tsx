@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Field, Input, Select } from "@/components/ui/input";
+import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Empty, ErrorNote, PageTitle, Spinner } from "@/components/ui/misc";
 import { Sheet } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
@@ -60,7 +60,7 @@ export default function CampaignsPage() {
                   <div className="min-w-0">
                     <p className="truncate font-medium">{c.name}</p>
                     <p className="truncate text-xs text-muted">
-                      {c.template_name ?? "No template"}
+                      {source(c)}
                       {c.status === "paused" && c.paused_reason ? ` · ${reason(c.paused_reason)}` : ""}
                     </p>
                   </div>
@@ -151,7 +151,7 @@ function CampaignDrawer({ id, onClose, onEdit }: { id: string | null; onClose: (
       }}
       wide
       title={c?.name ?? "Campaign"}
-      description={c ? `${c.template_name ?? "No template"} · created ${dateTime(c.created_at)}` : undefined}
+      description={c ? `${source(c)} · created ${dateTime(c.created_at)}` : undefined}
     >
       {!c ? (
         <div className="flex justify-center py-10">
@@ -341,6 +341,12 @@ function toDefinition(rules: Rule[], fields: SegmentField[]): Record<string, unk
   return out;
 }
 
+/** What a campaign sends: its template, or (Telegram) its own text. */
+function source(c: Campaign): string {
+  if (c.channel_kind === "telegram") return "Telegram · text message";
+  return c.template_name ?? "No template";
+}
+
 function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; onClose: () => void; onSaved: (c: Campaign) => void }) {
   const client = useQueryClient();
   const templates = useQuery({ queryKey: ["campaigns", "templates"], queryFn: () => api<Template[]>("/m/campaigns/templates") });
@@ -350,24 +356,27 @@ function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; on
       api<{ fields: SegmentField[]; variable_sources: { source: Binding["source"]; label: string }[] }>("/m/campaigns/segment-fields"),
   });
   const [name, setName] = useState(campaign?.name ?? "");
+  const [channel, setChannel] = useState<Campaign["channel_kind"]>(campaign?.channel_kind ?? "whatsapp");
+  const [text, setText] = useState(campaign?.body ?? "");
   const [templateId, setTemplateId] = useState(campaign?.template_id ?? "");
   const [bindings, setBindings] = useState<Binding[]>(campaign?.variable_bindings ?? []);
   const [rules, setRules] = useState<Rule[]>(toRules(campaign?.segment ?? null));
   const [budget, setBudget] = useState(campaign?.budget_cap_aed ?? "");
   const approved = (templates.data ?? []).filter((t) => t.meta_status === "APPROVED");
   const template = approved.find((t) => t.id === templateId);
-  const slots = useMemo(() => placeholders(template?.body ?? ""), [template]);
+  const telegram = channel === "telegram";
+  const slots = useMemo(() => placeholders((telegram ? text : template?.body) ?? ""), [telegram, text, template]);
   const fields = meta.data?.fields ?? [];
   const definition = toDefinition(rules, fields);
 
   // one binding per placeholder, defaulting to the contact's first name (only once the template
   // is known: while templates load, the saved bindings must not be trimmed away)
   useEffect(() => {
-    if (!template) return;
+    if (!telegram && !template) return;
     setBindings((b) =>
       slots.map((_, i) => b[i] ?? (i === 0 ? { source: "contact.first_name", fallback: "there" } : { source: "text", value: "" })),
     );
-  }, [slots, template]);
+  }, [slots, template, telegram]);
 
   const count = useQuery({
     queryKey: ["campaigns", "count", definition],
@@ -378,10 +387,11 @@ function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; on
     mutationFn: () => {
       const body = {
         name: name.trim(),
-        template_id: templateId || null,
+        ...(campaign ? {} : { channel_kind: channel }),
+        ...(telegram ? { body: text.trim() || null } : { template_id: templateId || null }),
         segment: definition,
         variable_bindings: bindings,
-        budget_cap_aed: budget.trim() || null,
+        ...(telegram ? {} : { budget_cap_aed: budget.trim() || null }),
       };
       return campaign
         ? api<Campaign>(`/m/campaigns/${campaign.id}`, { method: "PATCH", body })
@@ -412,34 +422,51 @@ function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; on
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Snack offer, October" />
         </Field>
 
-        <section className="space-y-2">
-          <Field label="Template" hint="Only templates Meta has approved can be sent">
-            <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-              <option value="">Choose a template…</option>
-              {approved.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.language})
-                </option>
-              ))}
+        {!campaign ? (
+          <Field label="Send on" hint="Telegram reaches only customers who started your bot. It needs no template and costs nothing.">
+            <Select value={channel} onChange={(e) => setChannel(e.target.value as Campaign["channel_kind"])}>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="telegram">Telegram</option>
             </Select>
           </Field>
-          {!approved.length && templates.isSuccess ? (
-            <p className="text-sm text-muted">
-              No approved templates yet.{" "}
-              <Link className="text-accent-ink" to="/campaigns/templates">
-                Write one
-              </Link>
-              .
-            </p>
-          ) : null}
-          {template?.body ? (
-            <p className="whitespace-pre-wrap rounded-lg bg-line/40 p-3 text-sm" dir="auto">
-              {template.body}
-            </p>
-          ) : null}
+        ) : null}
+
+        <section className="space-y-2">
+          {telegram ? (
+            <Field label="Message" hint="Plain text. Use {{1}}, {{2}}… for the parts filled in per customer. *bold* and _italic_ work.">
+              <Textarea dir="auto" rows={5} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} />
+            </Field>
+          ) : (
+            <>
+              <Field label="Template" hint="Only templates Meta has approved can be sent">
+                <Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                  <option value="">Choose a template…</option>
+                  {approved.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.language})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {!approved.length && templates.isSuccess ? (
+                <p className="text-sm text-muted">
+                  No approved templates yet.{" "}
+                  <Link className="text-accent-ink" to="/campaigns/templates">
+                    Write one
+                  </Link>
+                  .
+                </p>
+              ) : null}
+              {template?.body ? (
+                <p className="whitespace-pre-wrap rounded-lg bg-line/40 p-3 text-sm" dir="auto">
+                  {template.body}
+                </p>
+              ) : null}
+            </>
+          )}
           {slots.map((n, i) => {
             const b = bindings[i] ?? { source: "text" as const, value: "" };
-            const v = template?.variables.find((x) => x.index === n);
+            const v = telegram ? undefined : template?.variables.find((x) => x.index === n);
             return (
               <div key={n} className="grid grid-cols-1 gap-2 rounded-lg border border-line p-2 sm:grid-cols-[5rem_1fr_1fr] sm:items-end">
                 <span className="text-sm font-medium sm:pb-2.5">
@@ -489,7 +516,10 @@ function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; on
               {count.data ? `${count.data.recipients.toLocaleString("en")} customers` : null}
             </span>
           </div>
-          <p className="text-xs text-muted">Only customers who opted in to offers — always. Add filters to narrow it.</p>
+          <p className="text-xs text-muted">
+            Only customers who opted in to offers — always.
+            {telegram ? " Of those, only the ones who started your bot and have not blocked it." : ""} Add filters to narrow it.
+          </p>
           <ErrorNote error={count.error} />
           {rules.map((r, i) => {
             const f = fields.find((x) => x.name === r.name);
@@ -543,9 +573,11 @@ function Builder({ campaign, onClose, onSaved }: { campaign: Campaign | null; on
           </Select>
         </section>
 
-        <Field label="Budget cap (AED)" hint="Optional. Sending pauses when the campaign's WhatsApp charges reach it.">
-          <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ""))} />
-        </Field>
+        {telegram ? null : (
+          <Field label="Budget cap (AED)" hint="Optional. Sending pauses when the campaign's WhatsApp charges reach it.">
+            <Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^\d.]/g, ""))} />
+          </Field>
+        )}
         <ErrorNote error={save.error} />
       </div>
     </Sheet>

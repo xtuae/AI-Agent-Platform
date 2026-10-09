@@ -7,7 +7,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Empty, ErrorNote, Spinner } from "@/components/ui/misc";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { aed, dateLabel, localToday, phone } from "@/lib/format";
+import { aed, contactHandle, dateLabel, localToday } from "@/lib/format";
 import type { DeliveryList } from "@/lib/types";
 
 export default function DeliveryListPage() {
@@ -99,7 +99,7 @@ export default function DeliveryListPage() {
                     </td>
                     <td className="py-2">
                       {s.customer_name ?? "—"}
-                      <div className="text-xs text-muted">{phone(s.wa_id)}</div>
+                      <div className="text-xs text-muted">{contactHandle(s)}</div>
                       {s.address_note ? <div className="text-xs">{s.address_note}</div> : null}
                       {s.notes ? <div className="text-xs italic text-ink-2">{s.notes}</div> : null}
                     </td>

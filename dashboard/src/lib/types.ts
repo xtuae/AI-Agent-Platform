@@ -12,10 +12,21 @@ export interface OrderLine {
   paid_with_coupon: boolean;
 }
 
+/** A channel a customer is on, with their handle there (api/api/v1/common.py ChannelRef). */
+export interface ChannelRef {
+  kind: "whatsapp" | "telegram";
+  name: string;
+  /** WhatsApp: the number's digits; Telegram: "@username" or their display name. */
+  handle: string | null;
+  /** They blocked the bot: unreachable until they write again. */
+  blocked: boolean;
+}
+
 export interface CustomerRef {
   id: string;
   name: string | null;
-  wa_id: string;
+  /** null for a customer known only on Telegram. */
+  wa_id: string | null;
   area: string | null;
   address_note?: string | null;
 }
@@ -64,7 +75,7 @@ export interface DeliveryList {
       order_no: string;
       status: OrderStatus;
       customer_name: string | null;
-      wa_id: string;
+      wa_id: string | null;
       address_note: string | null;
       delivery_slot: string | null;
       items: OrderLine[];
@@ -103,10 +114,13 @@ export interface ConversationRow {
   id: string;
   state: ConvState;
   customer: CustomerRef;
+  /** The channel this conversation is on. */
+  channel: ChannelRef;
   assigned_to: string | null;
   assigned_to_name: string | null;
   last_inbound_at: string | null;
   last_outbound_at: string | null;
+  /** Always true on a channel without a service window (Telegram). */
   window_open: boolean;
   window_expires_at: string | null;
   language: string | null;
@@ -139,13 +153,15 @@ export type OptIn = "pending" | "opted_in" | "opted_out";
 
 export interface CustomerRow {
   id: string;
-  wa_id: string;
+  /** null for a customer known only on Telegram. */
+  wa_id: string | null;
   name: string | null;
   area: string | null;
   emirate: string | null;
   language: string | null;
   source: string | null;
   opt_in_status: OptIn;
+  channels: ChannelRef[];
 }
 
 export interface CustomerDetail extends CustomerRow {

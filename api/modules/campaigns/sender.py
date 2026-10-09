@@ -505,6 +505,12 @@ async def _run_text(
         if outcome.startswith("skip:"):
             report.skip(outcome[5:])
             continue
+        if outcome in ("sent", "blocked") and await _block_rate_exceeded(db, tid, cid):
+            await _pause(db, tid, cid, "block_rate")
+            report.status, report.next_run_in_s = "paused", None
+            report.sent += outcome == "sent"
+            report.failed += outcome == "blocked"
+            return report
         if outcome == "sent":
             report.sent += 1
             consecutive = 0
@@ -517,10 +523,6 @@ async def _run_text(
             return report
         report.failed += 1
         if outcome == "blocked":
-            if await _block_rate_exceeded(db, tid, cid):
-                await _pause(db, tid, cid, "block_rate")
-                report.status, report.next_run_in_s = "paused", None
-                return report
             continue  # a person blocking the bot says nothing about the channel's health
         consecutive += 1
         if consecutive >= MAX_CONSECUTIVE_FAILURES:

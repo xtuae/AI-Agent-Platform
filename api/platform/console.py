@@ -62,6 +62,8 @@ TOKEN_WARN = timedelta(days=7)
 
 
 class ChannelOut(BaseModel):
+    kind: str = "whatsapp"
+    telegram_username: str | None = None
     display_phone: str | None
     quality_rating: str | None
     messaging_limit_tier: str | None
@@ -330,6 +332,8 @@ async def _row(
         modules=x.modules,
         channels=[
             ChannelOut(
+                kind=c.kind,
+                telegram_username=c.telegram_username,
                 display_phone=c.display_phone,
                 quality_rating=c.quality_rating,
                 messaging_limit_tier=c.messaging_limit_tier,

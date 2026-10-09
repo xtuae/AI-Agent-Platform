@@ -18,6 +18,8 @@ export interface TenantRow {
   status: string;
   modules: string[];
   channels: {
+    kind: "whatsapp" | "telegram";
+    telegram_username: string | null;
     display_phone: string | null;
     quality_rating: string | null;
     messaging_limit_tier: string | null;

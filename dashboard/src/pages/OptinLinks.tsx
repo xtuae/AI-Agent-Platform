@@ -14,6 +14,8 @@ import type { OptinLink } from "@/lib/types";
 interface LinksResponse {
   links: OptinLink[];
   whatsapp_ready: boolean;
+  /** A live Telegram bot: the pages also offer "Continue on Telegram". */
+  telegram_ready: boolean;
 }
 
 const SOURCES: [string, string][] = [
@@ -41,7 +43,7 @@ export function OptinLinks() {
     <Card>
       <CardHeader
         title="Opt-in QR codes"
-        subtitle="Customers scan, read what they are agreeing to, and confirm on WhatsApp. Each opt-in keeps that exact wording as proof."
+        subtitle="Customers scan, read what they are agreeing to, and confirm on WhatsApp (or Telegram, if you have a bot). Each opt-in keeps that exact wording as proof."
         action={
           isAdmin ? (
             <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
@@ -60,9 +62,9 @@ export function OptinLinks() {
         </div>
       ) : (
         <>
-          {!q.data.whatsapp_ready ? (
+          {!q.data.whatsapp_ready && !q.data.telegram_ready ? (
             <p className="mx-4 mt-3 rounded-lg border border-warn/40 bg-warn/5 px-3 py-2 text-sm text-warn">
-              No WhatsApp number is connected yet, so the pages cannot open WhatsApp. They will work once it is.
+              No WhatsApp number or Telegram bot is connected yet, so the pages cannot hand over. They will work once one is.
             </p>
           ) : null}
           {q.data.links.length === 0 ? (

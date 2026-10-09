@@ -24,6 +24,14 @@ export function phone(waId: string): string {
   return m ? `+971 ${m[1]} ${m[2]} ${m[3]}` : `+${waId}`;
 }
 
+/** How to show who a customer is when there may be no number: the number, else the Telegram
+ *  handle, else "Telegram". */
+export function contactHandle(c: { wa_id: string | null; channels?: { kind: string; handle: string | null }[] }): string {
+  if (c.wa_id) return phone(c.wa_id);
+  const tg = c.channels?.find((x) => x.kind === "telegram");
+  return tg?.handle ?? "Telegram";
+}
+
 export function dateLabel(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = iso.length === 10 ? new Date(`${iso}T12:00:00Z`) : new Date(iso);
