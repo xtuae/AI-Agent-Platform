@@ -2,9 +2,9 @@
 // a tenant dashboard never downloads it. Every figure comes from the server; the console only
 // formats. Cross-tenant data is read tenant by tenant under RLS on the server.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, LogOut, Wallet } from "lucide-react";
+import { Building2, LogOut, Plus, ShieldCheck, Wallet } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
-import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useParams } from "react-router";
+import { BrowserRouter, Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useParams } from "react-router";
 import { StatementView } from "@/components/Statement";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { aed, ago, dateLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { consoleApi, onStaffSession, refreshStaff, STAFF_RANK, staffLogin, staffLogout, type StaffRole, type StaffSession } from "./api";
 import { Logo } from "@/components/Logo";
+import { ClientSetupPage, ClientTabs, NewClientPage, StaffPage } from "./admin";
 import type { LedgerRow, Overview, TenantDetail, TenantRow } from "./types";
 
 function useStaff(): { session: StaffSession | null; ready: boolean } {
@@ -50,8 +51,17 @@ export default function ConsoleApp() {
     <BrowserRouter>
       <Routes>
         <Route path="/console" element={<Shell session={session} />}>
-          <Route index element={<OverviewPage />} />
+          <Route index element={<OverviewPage role={session.user.role} />} />
+          <Route
+            path="clients/new"
+            element={STAFF_RANK[session.user.role] >= STAFF_RANK.ops ? <NewClientPage /> : <Navigate to="/console" replace />}
+          />
           <Route path="tenants/:id" element={<TenantPage role={session.user.role} />} />
+          <Route path="tenants/:id/setup" element={<ClientSetupPage role={session.user.role} />} />
+          <Route
+            path="staff"
+            element={session.user.role === "owner" ? <StaffPage me={session.user.email} /> : <Navigate to="/console" replace />}
+          />
           <Route path="reimbursements" element={<LedgerPage role={session.user.role} />} />
         </Route>
         <Route path="*" element={<Navigate to="/console" replace />} />
@@ -118,11 +128,14 @@ function StaffLogin() {
 }
 
 const NAV = [
-  { to: "/console", label: "Tenants", icon: Building2, end: true },
-  { to: "/console/reimbursements", label: "Reimbursements", icon: Wallet, end: false },
+  { to: "/console", label: "Clients", icon: Building2, end: true, owner: false },
+  { to: "/console/reimbursements", label: "Reimbursements", icon: Wallet, end: false, owner: false },
+  { to: "/console/staff", label: "Staff", icon: ShieldCheck, end: false, owner: true },
 ];
 
 function Shell({ session }: { session: StaffSession }) {
+  const { pathname } = useLocation();
+  const nav = NAV.filter((n) => !n.owner || session.user.role === "owner");
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-30 border-b border-line bg-page/95 backdrop-blur">
@@ -133,15 +146,15 @@ function Shell({ session }: { session: StaffSession }) {
               <span className="hidden sm:inline">HMH Labz console</span>
             </p>
             <nav className="flex gap-1" aria-label="Console">
-              {NAV.map(({ to, label, icon: Icon, end }) => (
+              {nav.map(({ to, label, icon: Icon, end }) => (
                 <NavLink
                   key={to}
                   to={to}
                   end={end}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm",
-                      isActive ? "bg-accent/10 font-medium text-accent-ink" : "text-ink-2",
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+                      isActive ? "bg-line/60 font-medium text-ink [&>svg]:text-accent-ink" : "text-ink-2 hover:bg-line/50 hover:text-ink",
                     )
                   }
                 >
@@ -162,7 +175,10 @@ function Shell({ session }: { session: StaffSession }) {
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl px-4 py-4 md:px-8 md:py-8">
-        <Outlet />
+        {/* keyed by route: each screen rises into place instead of snapping */}
+        <div key={pathname} className="enter">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
@@ -199,7 +215,7 @@ function Yes({ ok, label }: { ok: boolean | null; label: string }) {
   return <StatusDot status={ok === null ? "degraded" : ok ? "ok" : "down"} label={label} />;
 }
 
-function OverviewPage() {
+function OverviewPage({ role }: { role: StaffRole }) {
   const [month, setMonth] = useState(thisMonth());
   const q = useQuery({
     queryKey: ["console", "overview", month],
@@ -208,8 +224,15 @@ function OverviewPage() {
   });
   return (
     <div className="space-y-4">
-      <PageTitle title="Tenants">
+      <PageTitle title="Clients">
         <MonthPicker value={month} onChange={setMonth} />
+        {STAFF_RANK[role] >= STAFF_RANK.ops ? (
+          <Button asChild>
+            <Link to="/console/clients/new">
+              <Plus aria-hidden /> New client
+            </Link>
+          </Button>
+        ) : null}
       </PageTitle>
       {q.isPending ? (
         <Loading />
@@ -235,10 +258,18 @@ function OverviewPage() {
           </div>
           {q.data.tenants.length === 0 ? (
             <Card>
-              <Empty title="No tenants yet" />
+              <Empty title="No clients yet">
+                {STAFF_RANK[role] >= STAFF_RANK.ops ? (
+                  <Link to="/console/clients/new" className="font-medium text-accent-ink hover:underline">
+                    Add the first client
+                  </Link>
+                ) : (
+                  "An ops or owner account adds clients."
+                )}
+              </Empty>
             </Card>
           ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="enter-list grid gap-3 lg:grid-cols-2">
               {q.data.tenants.map((t) => (
                 <TenantCard key={t.id} t={t} month={month} />
               ))}
@@ -253,7 +284,7 @@ function OverviewPage() {
 function TenantCard({ t, month }: { t: TenantRow; month: string }) {
   return (
     <Link to={`/console/tenants/${t.id}?month=${month}`} className="block min-w-0 rounded-xl">
-      <Card className="h-full p-4 transition-colors hover:border-accent/40">
+      <Card className="h-full p-4 transition-[border-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:border-ink-2/30 hover:shadow-[0_8px_24px_-16px_rgb(0_0_0/0.25)]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate font-medium">{t.name}</p>
@@ -308,6 +339,7 @@ function TenantPage({ role }: { role: StaffRole }) {
       <PageTitle title={t.name}>
         <MonthPicker value={month} onChange={setMonth} />
       </PageTitle>
+      <ClientTabs id={id} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile
           label="Meta charges"

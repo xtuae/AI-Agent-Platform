@@ -2,43 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tokens (dataviz reference palette): neutral planes, one blue accent, reserved status colours.
-   Space-separated RGB so Tailwind can apply opacity. */
+/* IBM Plex Sans + Plex Sans Arabic, one family across both scripts (same files as heyozo.com). */
+@font-face {
+  font-family: "Plex";
+  src: url("/fonts/plex-sans-latin.woff2") format("woff2");
+  font-weight: 100 700;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face { font-family: "Plex"; src: url("/fonts/plex-arabic-400.woff2") format("woff2"); font-weight: 400; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+@font-face { font-family: "Plex"; src: url("/fonts/plex-arabic-500.woff2") format("woff2"); font-weight: 500; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+@font-face { font-family: "Plex"; src: url("/fonts/plex-arabic-600.woff2") format("woff2"); font-weight: 600 700; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+
+/* Tokens: the heyozo.com palette (warm paper, ink, coral used sparingly) plus reserved status
+   colours. Space-separated RGB so Tailwind can apply opacity. */
 :root {
   color-scheme: light;
-  --page: 249 249 247; /* #f9f9f7 */
-  --surface: 252 252 251; /* #fcfcfb */
-  --ink: 11 11 11; /* #0b0b0b */
-  --ink-2: 82 81 78; /* #52514e */
-  --muted: 110 109 104; /* #6e6d68 — AA on page for small text */
-  --line: 225 224 217; /* #e1e0d9 */
-  --baseline: 195 194 183; /* #c3c2b7 */
-  --accent: 42 120 214; /* #2a78d6 */
-  --accent-ink: 29 92 171; /* #1c5cab — accent as text, AA */
-  --accent-fill: 42 120 214; /* button fill: white text on it is 4.6:1 */
+  --page: 246 244 239; /* #f6f4ef — heyozo.com paper */
+  --surface: 255 253 249; /* #fffdf9 */
+  --ink: 20 22 20; /* #141614 */
+  --ink-2: 79 83 79; /* #4f534f */
+  --muted: 90 95 91; /* #5a5f5b — 5.9:1 on page, AA for small text */
+  --line: 225 221 211; /* #e1ddd3 */
+  --baseline: 196 191 179; /* #c4bfb3 */
+  --accent: 255 106 61; /* #ff6a3d — brand coral: marks, dots, focus; never body text */
+  --accent-ink: 184 64 26; /* #b8401a — coral as text, 5.2:1 on page */
+  --accent-fill: 184 64 26; /* coral fill: white text on it is 5.6:1 */
+  --bubble: 228 239 224; /* #e4efe0 — the agent's own messages */
   --good: 0 99 0; /* #006300 — success text */
   --warn: 138 90 0; /* #8a5a00 — warning text; the #fab219 dot carries the hue */
   --bad: 176 40 40; /* #b02828 — critical text */
   --dot-good: #0ca30c;
   --dot-warn: #fab219;
   --dot-bad: #d03b3b;
-  --series: #2a78d6;
+  --series: #2a78d6; /* charts keep one validated blue series: data, not brand */
   --series-wash: rgb(42 120 214 / 0.1);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --page: 13 13 13;
-    --surface: 26 26 25;
-    --ink: 255 255 255;
-    --ink-2: 195 194 183;
-    --muted: 150 149 142;
-    --line: 44 44 42;
-    --baseline: 56 56 53;
-    --accent: 57 135 229;
-    --accent-ink: 134 182 239;
-    --accent-fill: 37 106 191; /* #256abf: white text 5.2:1 (#3987e5 was 3.6:1) */
+    --page: 16 18 17;
+    --surface: 23 26 24;
+    --ink: 241 239 233;
+    --ink-2: 200 198 192;
+    --muted: 162 166 162;
+    --line: 42 46 43;
+    --baseline: 62 66 63;
+    --accent: 255 122 80;
+    --accent-ink: 255 154 120;
+    --accent-fill: 176 62 28; /* white text 6.0:1 */
+    --bubble: 35 56 42;
     --good: 12 163 12;
     --warn: 250 178 25;
     --bad: 230 103 103;
@@ -48,16 +63,17 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: 13 13 13;
-  --surface: 26 26 25;
-  --ink: 255 255 255;
-  --ink-2: 195 194 183;
-  --muted: 150 149 142;
-  --line: 44 44 42;
-  --baseline: 56 56 53;
-  --accent: 57 135 229;
-  --accent-ink: 134 182 239;
-  --accent-fill: 37 106 191;
+    --page: 16 18 17;
+  --surface: 23 26 24;
+  --ink: 241 239 233;
+  --ink-2: 200 198 192;
+  --muted: 162 166 162;
+  --line: 42 46 43;
+  --baseline: 62 66 63;
+  --accent: 255 122 80;
+  --accent-ink: 255 154 120;
+  --accent-fill: 176 62 28; /* white text 6.0:1 */
+  --bubble: 35 56 42;
   --good: 12 163 12;
   --warn: 250 178 25;
   --bad: 230 103 103;
@@ -79,6 +95,39 @@ body {
   outline: 2px solid rgb(var(--accent));
   outline-offset: 2px;
 }
+::selection {
+  background: rgb(var(--accent) / 0.25);
+}
+/* Motion: short, purposeful, and off for anyone who asks for less. Content always arrives from
+   where it lives (pages rise a few pixels, panels slide from their edge); exits are faster. */
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes from-right { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes to-right { from { transform: none; } to { transform: translateX(100%); } }
+@keyframes from-bottom { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes to-bottom { from { transform: none; } to { transform: translateY(100%); } }
+.enter { animation: enter 0.28s var(--ease-out) both; }
+.enter-list > * { animation: enter 0.32s var(--ease-out) both; }
+.enter-list > *:nth-child(2) { animation-delay: 40ms; }
+.enter-list > *:nth-child(3) { animation-delay: 80ms; }
+.enter-list > *:nth-child(4) { animation-delay: 120ms; }
+.enter-list > *:nth-child(5) { animation-delay: 160ms; }
+.enter-list > *:nth-child(n + 6) { animation-delay: 200ms; }
+.overlay[data-state="open"] { animation: fade-in 0.2s ease-out; }
+.overlay[data-state="closed"] { animation: fade-out 0.15s ease-in; }
+.panel[data-state="open"] { animation: from-bottom 0.3s var(--ease-out); }
+.panel[data-state="closed"] { animation: to-bottom 0.2s ease-in; }
+@media (min-width: 768px) {
+  .panel[data-state="open"] { animation: from-right 0.3s var(--ease-out); }
+  .panel[data-state="closed"] { animation: to-right 0.2s ease-in; }
+}
+.press { transition: transform 0.16s var(--ease-out), background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease; }
+.press:active:not(:disabled) { transform: scale(0.98); transition-duration: 0.06s; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }

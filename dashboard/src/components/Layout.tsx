@@ -1,13 +1,13 @@
 import { Home, LogOut, MessagesSquare, MoreHorizontal, Receipt, Settings, Users, type LucideIcon } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 import { logout } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLive } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 import { useModules } from "@/modules";
 import { Spinner } from "./ui/misc";
-import { Logo } from "./Logo";
+import { HeyozoMark } from "./Logo";
 import { Sheet } from "./ui/sheet";
 
 interface NavItem {
@@ -51,6 +51,7 @@ function LiveBadge() {
 
 export function Layout() {
   const { session } = useAuth();
+  const { pathname } = useLocation();
   const NAV = useNav();
   const [more, setMore] = useState(false);
   // Phones: five slots. With more screens than that, the last slot opens the rest.
@@ -62,7 +63,7 @@ export function Layout() {
       {/* desktop sidebar */}
       <aside className="no-print hidden w-56 shrink-0 flex-col border-r border-line bg-surface md:flex">
         <div className="px-4 py-5">
-          <Logo className="mb-3 size-8" />
+          <HeyozoMark className="mb-4 text-base" />
           <p className="truncate text-sm font-semibold">{session?.tenant.name}</p>
           <p className="truncate text-xs text-muted">{session?.user.name ?? session?.user.email}</p>
         </div>
@@ -74,8 +75,8 @@ export function Layout() {
               end={end}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
-                  isActive ? "bg-accent/10 font-medium text-accent-ink" : "text-ink-2 hover:bg-line/50",
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                  isActive ? "bg-line/60 font-medium text-ink [&>svg]:text-accent-ink" : "text-ink-2 hover:bg-line/50 hover:text-ink",
                 )
               }
             >
@@ -96,7 +97,7 @@ export function Layout() {
         {/* phone header */}
         <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-line bg-page/95 px-4 py-3 backdrop-blur md:hidden">
           <p className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-            <Logo className="size-6 shrink-0" />
+            <HeyozoMark word={false} className="shrink-0" />
             <span className="truncate">{session?.tenant.name}</span>
           </p>
           <LiveBadge />
@@ -109,7 +110,10 @@ export function Layout() {
               </div>
             }
           >
-            <Outlet />
+            {/* keyed by route: each screen rises into place instead of snapping */}
+            <div key={pathname} className="enter">
+              <Outlet />
+            </div>
           </Suspense>
         </main>
       </div>
@@ -127,8 +131,8 @@ export function Layout() {
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px]",
-                isActive ? "font-medium text-accent-ink" : "text-muted",
+                "flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors",
+                isActive ? "font-medium text-ink [&>svg]:text-accent-ink" : "text-muted",
               )
             }
           >
@@ -156,7 +160,7 @@ export function Layout() {
                   end={end}
                   onClick={() => setMore(false)}
                   className={({ isActive }) =>
-                    cn("flex items-center gap-3 rounded-lg px-3 py-3", isActive ? "bg-accent/10 font-medium text-accent-ink" : "text-ink-2")
+                    cn("flex items-center gap-3 rounded-lg px-3 py-3", isActive ? "bg-line/60 font-medium text-ink [&>svg]:text-accent-ink" : "text-ink-2")
                   }
                 >
                   <Icon className="size-5" aria-hidden />

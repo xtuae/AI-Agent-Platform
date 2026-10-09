@@ -97,3 +97,25 @@ export async function consoleApi<T>(path: string, opts: RequestOptions = {}): Pr
 }
 
 export const STAFF_RANK: Record<StaffRole, number> = { support: 0, ops: 1, owner: 2 };
+
+/** Download a file from /api/v1/platform (same session rules as consoleApi) and save it. */
+export async function consoleDownload(path: string, filename: string): Promise<void> {
+  const send = (token: string | undefined) =>
+    fetch(buildUrl(`/platform${path}`), {
+      credentials: "same-origin",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  let r = await send(session?.access_token);
+  if (r.status === 401) {
+    const next = await refreshStaff();
+    if (!next) throw new ApiError(401, "Your session has ended. Please sign in again.");
+    r = await send(next.access_token);
+  }
+  if (!r.ok) return fail(r);
+  const url = URL.createObjectURL(await r.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

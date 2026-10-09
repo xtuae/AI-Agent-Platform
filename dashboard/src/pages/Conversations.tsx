@@ -347,12 +347,12 @@ function Bubble({ m }: { m: MessageOut }) {
           inbound
             ? "rounded-bl-sm border border-line bg-surface"
             : m.author === "person"
-              ? "rounded-br-sm bg-accent-fill text-white"
-              : "rounded-br-sm bg-accent/10",
+              ? "rounded-br-sm bg-ink text-page"
+              : "rounded-br-sm bg-bubble",
         )}
       >
         {who ? (
-          <p className={cn("mb-0.5 flex items-center gap-1 text-[11px]", m.author === "person" ? "text-white/80" : "text-muted")}>
+          <p className={cn("mb-0.5 flex items-center gap-1 text-[11px]", m.author === "person" ? "text-page/75" : "text-muted")}>
             {m.author === "person" ? <UserRound className="size-3" aria-hidden /> : <Bot className="size-3" aria-hidden />} {who}
           </p>
         ) : null}
@@ -361,7 +361,7 @@ function Bubble({ m }: { m: MessageOut }) {
           {text ?? `[${m.msg_type ?? "message"}]`}
         </p>
         <p
-          className={cn("mt-0.5 text-right text-[11px]", m.author === "person" ? "text-white/80" : "text-muted")}
+          className={cn("mt-0.5 text-right text-[11px]", m.author === "person" ? "text-page/75" : "text-muted")}
           title={dateTime(m.created_at)}
         >
           {timeOnly(m.created_at)}
