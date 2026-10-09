@@ -221,9 +221,11 @@ you never need to touch DNS again when adding a client.
 1. Cloudflare → click your profile icon (top right) → **My Profile** → **API Tokens** →
    **Create Token**.
 2. Choose the template **"Edit zone DNS"** → **Use template**.
-3. **Zone Resources:** *Include → Specific zone → heyozo.com*.
-4. **Continue to summary** → **Create Token**.
-5. Copy the token (it is shown **once**) → **Save in password manager** as
+3. **Permissions:** keep *Zone · DNS · Edit*, then **+ Add more** → *Zone · Zone · Read*
+   (Caddy's Cloudflare plugin needs both).
+4. **Zone Resources:** *Include → Specific zone → heyozo.com*.
+5. **Continue to summary** → **Create Token**.
+6. Copy the token (it is shown **once**, about 40 characters) → **Save in password manager** as
    "CLOUDFLARE_API_TOKEN".
 
 ### 4.3 Check the DNS works
