@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Data Processing · Heyozo</title>
+  <meta name="description" content="How Heyozo processes personal data for businesses, and its sub-processors.">
+  <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#101211" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top" id="top">
+    <div class="wrap top-in">
+      <a class="brand" href="/" aria-label="Heyozo home">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3C8.8 3 3 8.4 3 15c0 3.4 1.5 6.4 4 8.6V29l5.3-2.9c1.2.3 2.4.5 3.7.5 7.2 0 13-5.4 13-12S23.2 3 16 3Z"/><circle cx="11" cy="15" r="2.1"/><circle cx="21" cy="15" r="2.1"/></svg>
+        <span class="word">heyozo</span>
+        <span class="by">by HMH Labz</span>
+      </a>
+      <nav class="top-nav" aria-label="Main">
+        <a class="link" href="/">Home</a>
+        <a class="btn btn-sm" href="/#demo">Book a demo</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" class="doc">
+    <div class="wrap">
+      <nav aria-label="Legal pages">
+        <ul class="toc">
+          <li><a href="/privacy">Privacy Policy</a></li>
+          <li><a href="/terms">Terms of Service</a></li>
+          <li><a href="/data-processing" aria-current="page">Data Processing</a></li>
+          <li><a href="/acceptable-use">Acceptable Use</a></li>
+        </ul>
+      </nav>
+      <h1>Data Processing</h1>
+      <p class="meta">Last updated 9 October 2026</p>
+      <p>This page describes how <a href="https://hmhlabz.com" rel="noopener">HMH Labz LLP</a> processes personal data when a business (“the client”) uses Heyozo. The client is the data fiduciary (controller) for its customers' data; HMH Labz is its data processor. Each client also receives a description generated from its own live configuration with its contract.</p>
+
+      <h2>Purpose</h2>
+      <p>An automated WhatsApp assistant answers the client's customers on the client's WhatsApp number, records what they ask for, and hands conversations to the client's staff when needed. The client's staff use a web dashboard to see and act on the same data.</p>
+
+      <h2>Data subjects and personal data</h2>
+      <p>Data subjects: the client's customers who message its WhatsApp number or are imported from its records, and the client's staff who sign in to the dashboard.</p>
+      <ul>
+        <li>WhatsApp number and profile name; name, area, address note and language when given.</li>
+        <li>Message content in both directions. Voice notes are transcribed and only the transcript is kept.</li>
+        <li>Marketing consent and its evidence: the exact wording shown, the time and the source.</li>
+        <li>Depending on the features the client uses: orders (items, quantities, delivery note, date and status), prepaid coupons, appointments, and campaign delivery and replies.</li>
+        <li>Staff accounts: email, name, role, sign-in times, and an audit log of changes.</li>
+      </ul>
+      <p>No special categories of data are requested. Payment card data is never handled.</p>
+
+      <h2>Our commitments as processor</h2>
+      <ul>
+        <li>Process the data only on the client's documented instructions and for the purpose above.</li>
+        <li>Ensure everyone with access is bound by confidentiality.</li>
+        <li>Keep the security measures below in place.</li>
+        <li>Use the sub-processors listed below, each under a written contract, and tell clients in advance about new ones so they can object.</li>
+        <li>Help the client answer requests from its customers and meet its own legal duties.</li>
+        <li>Notify the client without undue delay after becoming aware of a personal data breach, with the information it needs.</li>
+        <li>At the end of the service, delete or return the data as the client instructs.</li>
+        <li>Make available the information needed to show compliance, and allow reasonable audits by agreement.</li>
+      </ul>
+
+      <h2 id="sub-processors">Sub-processors</h2>
+      <table>
+        <thead><tr><th scope="col">Sub-processor</th><th scope="col">What it does</th><th scope="col">Location</th></tr></thead>
+        <tbody>
+          <tr><td>Amazon Web Services, Inc.</td><td>Hosts the application and database (Amazon EC2).</td><td>United States (us-east-1)</td></tr>
+          <tr><td>Meta Platforms Ireland Ltd (WhatsApp Business Platform)</td><td>Carries every WhatsApp message to and from customers, on the business's own WhatsApp Business Account.</td><td>Meta's global infrastructure</td></tr>
+          <tr><td>Google LLC (Gemini API)</td><td>Generates the assistant's replies and transcribes voice notes. Receives the conversation text needed for each reply, under Google's paid API terms.</td><td>Google's global infrastructure</td></tr>
+          <tr><td>OpenRouter, Inc.</td><td>Back-up route to a comparable model, used only when the Gemini API is unavailable.</td><td>United States</td></tr>
+          <tr><td>Cloudflare, Inc.</td><td>DNS for heyozo.com, and storage of encrypted backups (R2). Message content does not pass through Cloudflare's network in normal operation.</td><td>Global (DNS); backups as configured</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Security measures</h2>
+      <ul>
+        <li>Each client's data is isolated in the database by row-level security enforced by PostgreSQL; the application connects as a role that cannot bypass it, and every route is tested for cross-client access.</li>
+        <li>Inbound WhatsApp webhooks are verified by Meta's signature before they are processed.</li>
+        <li>WhatsApp access tokens are encrypted at rest. No token, password or message content is written to logs.</li>
+        <li>Dashboard sign-in with per-person accounts and roles; HMH Labz staff use a separate console with two-factor authentication.</li>
+        <li>TLS for all traffic. Only web traffic reaches the server; administration is by key-only SSH on a non-standard port, with automatic security updates.</li>
+        <li>Nightly backups, encrypted before upload with a key kept off the server, retained 30 days; restores are tested.</li>
+        <li>Customers who reply STOP are opted out immediately, and campaigns can never reach them.</li>
+      </ul>
+
+      <h2>Retention</h2>
+      <p>Records are kept for the life of the contract, then deleted or returned on the client's instruction. A shorter automatic period can be agreed and configured. Backups expire after 30 days.</p>
+
+      <h2>International transfers</h2>
+      <p>The application and database are hosted in the United States. Model providers and Meta may process data in other countries. Transfers are made only as the DPDP Act and the client's applicable law permit, and the client is told where its data is processed.</p>
+
+      <h2>Requests from customers</h2>
+      <p>The client can find, correct and opt out a customer from its dashboard. Deletion of an individual's data is carried out by HMH Labz on the client's written instruction. Contact <a href="mailto:hello@hmhlabz.com">hello@hmhlabz.com</a>.</p>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <span>Heyozo is a product of <a href="https://hmhlabz.com" rel="noopener">HMH Labz LLP</a>. © <span class="year">2026</span></span>
+      <nav aria-label="Legal">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/data-processing">Data processing</a>
+        <a href="/acceptable-use">Acceptable use</a>
+        <a href="mailto:hello@hmhlabz.com">hello@hmhlabz.com</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

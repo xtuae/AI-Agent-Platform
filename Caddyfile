@@ -62,8 +62,11 @@ go.{$BASE_DOMAIN} {
 	header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 	encode zstd gzip
 	root * /srv/landing
-	header /index.html Cache-Control "no-cache"
-	try_files {path} /index.html
+	@pages path / /index.html /*.html /style.css /app.js /privacy /terms /data-processing /acceptable-use
+	header @pages Cache-Control "no-cache"
+	@static path /fonts/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+	try_files {path} {path}.html /index.html
 	file_server
 }
 

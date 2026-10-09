@@ -43,7 +43,10 @@ SUBPROCESSORS: Final = [
      "(use a paid key: free-tier terms differ)."),
     ("OpenRouter Inc.", "Fallback route to the same model family, used only when Gemini is "
      "unavailable."),
-    ("Hostinger International Ltd", "Virtual server hosting the application and database."),
+    ("Amazon Web Services, Inc.", "Virtual server (EC2, us-east-1, United States) hosting the "
+     "application and database."),
+    ("Cloudflare Inc. (DNS)", "Resolves the platform's domain names; no message content passes "
+     "through it."),
     ("Cloudflare Inc. (R2) or Backblaze Inc. (B2)", "Stores nightly backups, encrypted before "
      "upload with a key held by HMH Labz off the server."),
 ]  # fmt: skip
@@ -107,7 +110,7 @@ async def render(slug: str) -> str:
         "- Application and database: one virtual server operated by HMH Labz (see sub-processors).",
         f"- WhatsApp number: {number}, on the controller's own WhatsApp Business Account.",
         "- Model provider requests are processed by the providers listed below, which may process "
-        "outside the UAE.",
+        "outside the controller's country.",
         "",
         "## Sub-processors",
         "",
