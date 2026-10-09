@@ -56,6 +56,14 @@ go.{$BASE_DOMAIN} {
 	}
 }
 
+# The bare domain and www serve nothing of their own: send visitors to the company site. 302, so
+# a landing page can replace it later without browsers having cached the redirect. Without this
+# block www.<domain> would fall into the tenant wildcard below.
+{$BASE_DOMAIN}, www.{$BASE_DOMAIN} {
+	import security_headers
+	redir https://hmhlabz.com 302
+}
+
 # Status page (Phase 6): Uptime Kuma, staff only. STATUS_BASIC_AUTH_HASH from `caddy hash-password`.
 status.{$BASE_DOMAIN} {
 	import security_headers
