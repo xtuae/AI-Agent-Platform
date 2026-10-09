@@ -35,7 +35,8 @@ echo "== build images ($SHA)"
 "${COMPOSE[@]}" build --quiet api worker scheduler caddy
 
 echo "== build dashboard (into dist.new; swapped in only after a clean build)"
-docker run --rm -u "$(id -u):$(id -g)" -v "$PWD/dashboard:/app" -w /app node:22-alpine \
+# HOME=/tmp: a uid other than 1000 (`node` in the image) has no home, and npm's cache would go to /.npm
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/dashboard:/app" -w /app node:22-alpine \
   sh -c "npm ci --silent && npx tsc -b && npx vite build --outDir dist.new --emptyOutDir"
 
 if grep -qE '^BACKUP_BUCKET=.+' .env; then
