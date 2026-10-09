@@ -110,11 +110,7 @@ export function buildUrl(path: string, query?: RequestOptions["query"]): string 
   return `/api/v1${path}${qs ? `?${qs}` : ""}`;
 }
 
-export async function api<T>(
-  path: string,
-  opts: RequestOptions = {},
-  fetchImpl: typeof fetch = fetch,
-): Promise<T> {
+export async function api<T>(path: string, opts: RequestOptions = {}, fetchImpl: typeof fetch = fetch): Promise<T> {
   const send = (token: string | undefined) =>
     fetchImpl(buildUrl(path, opts.query), {
       method: opts.method ?? "GET",
@@ -144,11 +140,7 @@ export async function api<T>(
   return data as T;
 }
 
-export async function login(
-  email: string,
-  password: string,
-  tenant?: string,
-): Promise<Session> {
+export async function login(email: string, password: string, tenant?: string): Promise<Session> {
   const r = await fetch("/api/v1/auth/login", {
     method: "POST",
     credentials: "same-origin",

@@ -46,9 +46,7 @@ export function Sheet({
             </Dialog.Close>
           </div>
           <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">{children}</div>
-          {footer ? (
-            <div className="border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">{footer}</div>
-          ) : null}
+          {footer ? <div className="border-t border-line px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">{footer}</div> : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

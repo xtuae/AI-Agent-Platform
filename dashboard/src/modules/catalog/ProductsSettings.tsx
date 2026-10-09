@@ -52,7 +52,11 @@ export default function ProductsSettings() {
           </li>
         ))}
       </ul>
-      {products.isPending ? <div className="p-4"><Spinner /></div> : null}
+      {products.isPending ? (
+        <div className="p-4">
+          <Spinner />
+        </div>
+      ) : null}
       {editing ? (
         <ProductSheet
           product={editing === "new" ? null : editing}
@@ -99,7 +103,11 @@ function ProductSheet({ product, onClose, onSaved }: { product: Product | null; 
       onOpenChange={(v) => !v && onClose()}
       title={product ? `Edit ${product.name_en ?? product.sku}` : "Add product"}
       footer={
-        <Button className="w-full" disabled={save.isPending || !f.name_en || !f.price_aed || (!product && !f.sku)} onClick={() => save.mutate()}>
+        <Button
+          className="w-full"
+          disabled={save.isPending || !f.name_en || !f.price_aed || (!product && !f.sku)}
+          onClick={() => save.mutate()}
+        >
           Save
         </Button>
       }
@@ -125,7 +133,11 @@ function ProductSheet({ product, onClose, onSaved }: { product: Product | null; 
             </Select>
           </Field>
           <Field label="Price (AED)">
-            <Input inputMode="decimal" value={f.price_aed} onChange={(e) => setF({ ...f, price_aed: e.target.value.replace(/[^\d.]/g, "") })} />
+            <Input
+              inputMode="decimal"
+              value={f.price_aed}
+              onChange={(e) => setF({ ...f, price_aed: e.target.value.replace(/[^\d.]/g, "") })}
+            />
           </Field>
         </div>
         <Field label="Stock note" hint="Optional, e.g. 'back on Monday'">
@@ -140,4 +152,3 @@ function ProductSheet({ product, onClose, onSaved }: { product: Product | null; 
     </Sheet>
   );
 }
-

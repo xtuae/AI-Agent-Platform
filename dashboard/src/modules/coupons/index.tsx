@@ -22,9 +22,7 @@ function ContactPanel({ data }: { data: unknown }) {
   const d = data as CouponsPanel;
   return (
     <section>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-        Coupon books · {d.bottles_remaining} left
-      </h3>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Coupon books · {d.bottles_remaining} left</h3>
       {d.books.length ? (
         <ul className="divide-y divide-line rounded-lg border border-line text-sm">
           {d.books.map((b) => (

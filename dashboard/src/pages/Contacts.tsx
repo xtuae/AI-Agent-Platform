@@ -71,7 +71,10 @@ export default function ContactsPage() {
           <ul className="divide-y divide-line">
             {list.data.items.map((c) => (
               <li key={c.id}>
-                <button className="grid w-full grid-cols-[1fr_auto] gap-x-3 px-4 py-3 text-left hover:bg-line/30 md:grid-cols-[1.4fr_1fr_1fr_auto]" onClick={() => setOpenId(c.id)}>
+                <button
+                  className="grid w-full grid-cols-[1fr_auto] gap-x-3 px-4 py-3 text-left hover:bg-line/30 md:grid-cols-[1.4fr_1fr_1fr_auto]"
+                  onClick={() => setOpenId(c.id)}
+                >
                   <div className="min-w-0">
                     <p className="truncate font-medium">{c.name ?? phone(c.wa_id)}</p>
                     <p className="text-xs text-muted">{phone(c.wa_id)}</p>
@@ -172,9 +175,7 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                 <div className="flex gap-2">
                   <Button
                     disabled={patch.isPending}
-                    onClick={() =>
-                      patch.mutate(Object.fromEntries(Object.entries(edit).map(([k, v]) => [k, v.trim() || null])))
-                    }
+                    onClick={() => patch.mutate(Object.fromEntries(Object.entries(edit).map(([k, v]) => [k, v.trim() || null])))}
                   >
                     Save
                   </Button>
@@ -201,7 +202,9 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => setEdit({ name: d.name ?? "", area: d.area ?? "", emirate: d.emirate ?? "", address_note: d.address_note ?? "" })}
+                    onClick={() =>
+                      setEdit({ name: d.name ?? "", area: d.area ?? "", emirate: d.emirate ?? "", address_note: d.address_note ?? "" })
+                    }
                   >
                     Edit
                   </Button>
@@ -221,7 +224,9 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
             </div>
             {d.opt_in_status === "opted_in" ? <Evidence value={d.opt_in_evidence} /> : null}
             {d.opt_in_status === "pending" ? (
-              <p className="text-sm text-muted">Only the customer can opt in (by replying on WhatsApp). Campaigns never reach them until then.</p>
+              <p className="text-sm text-muted">
+                Only the customer can opt in (by replying on WhatsApp). Campaigns never reach them until then.
+              </p>
             ) : null}
             {canEdit && d.opt_in_status !== "opted_out" ? (
               <Button
@@ -239,9 +244,7 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
           </section>
 
           {modules.map((m) =>
-            m.ContactPanel && d.modules[m.key] !== undefined ? (
-              <m.ContactPanel key={m.key} data={d.modules[m.key]} contact={d} />
-            ) : null,
+            m.ContactPanel && d.modules[m.key] !== undefined ? <m.ContactPanel key={m.key} data={d.modules[m.key]} contact={d} /> : null,
           )}
 
           {d.conversations.length ? (
@@ -263,7 +266,6 @@ function CustomerDrawer({ id, onClose }: { id: string | null; onClose: () => voi
     </Sheet>
   );
 }
-
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">{children}</h3>;

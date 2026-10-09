@@ -299,9 +299,7 @@ function OrderDrawer({ id, onClose }: { id: string | null; onClose: () => void }
         <div className="space-y-5">
           <div className="flex items-center justify-between">
             <StatusBadge status={o.status} />
-            <span className="text-xs text-muted">
-              via {o.source === "agent" ? "WhatsApp agent" : o.source ?? "—"}
-            </span>
+            <span className="text-xs text-muted">via {o.source === "agent" ? "WhatsApp agent" : (o.source ?? "—")}</span>
           </div>
           <ErrorNote error={patch.error} />
 
@@ -346,10 +344,19 @@ function OrderDrawer({ id, onClose }: { id: string | null; onClose: () => void }
           {edit ? (
             <section className="space-y-3 rounded-lg border border-line p-3">
               <Field label="Delivery date">
-                <Input type="date" min={localToday()} value={edit.delivery_date} onChange={(e) => setEdit({ ...edit, delivery_date: e.target.value })} />
+                <Input
+                  type="date"
+                  min={localToday()}
+                  value={edit.delivery_date}
+                  onChange={(e) => setEdit({ ...edit, delivery_date: e.target.value })}
+                />
               </Field>
               <Field label="Time slot">
-                <Input placeholder="e.g. 4–6 pm" value={edit.delivery_slot} onChange={(e) => setEdit({ ...edit, delivery_slot: e.target.value })} />
+                <Input
+                  placeholder="e.g. 4–6 pm"
+                  value={edit.delivery_slot}
+                  onChange={(e) => setEdit({ ...edit, delivery_slot: e.target.value })}
+                />
               </Field>
               <Field label="Notes">
                 <Textarea value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
@@ -422,7 +429,9 @@ function describe(h: OrderDetail["history"][number]): string {
   if (h.action === "create_order") return `${who} placed the order`;
   const s = h.after?.status;
   if (typeof s === "string") return `${who}: ${label(STATUS_LABEL, s)}`;
-  return `${who} updated ${Object.keys(h.after ?? {}).join(", ").replace(/_/g, " ")}`;
+  return `${who} updated ${Object.keys(h.after ?? {})
+    .join(", ")
+    .replace(/_/g, " ")}`;
 }
 
 // ---------------------------------------------------------------- new order
@@ -530,7 +539,13 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
                     <p className="text-xs text-muted">{aed(p.price_aed)}</p>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Button size="icon" variant="secondary" aria-label={`Fewer ${p.name_en}`} disabled={n === 0} onClick={() => setQty({ ...qty, [p.sku]: Math.max(0, n - 1) })}>
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      aria-label={`Fewer ${p.name_en}`}
+                      disabled={n === 0}
+                      onClick={() => setQty({ ...qty, [p.sku]: Math.max(0, n - 1) })}
+                    >
                       <Minus />
                     </Button>
                     <input
@@ -538,9 +553,16 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
                       inputMode="numeric"
                       className="h-10 w-12 rounded-lg border border-line bg-surface text-center text-base tabular"
                       value={n}
-                      onChange={(e) => setQty({ ...qty, [p.sku]: Math.min(1000, Math.max(0, Number(e.target.value.replace(/\D/g, "")) || 0)) })}
+                      onChange={(e) =>
+                        setQty({ ...qty, [p.sku]: Math.min(1000, Math.max(0, Number(e.target.value.replace(/\D/g, "")) || 0)) })
+                      }
                     />
-                    <Button size="icon" variant="secondary" aria-label={`More ${p.name_en}`} onClick={() => setQty({ ...qty, [p.sku]: n + 1 })}>
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      aria-label={`More ${p.name_en}`}
+                      onClick={() => setQty({ ...qty, [p.sku]: n + 1 })}
+                    >
                       <Plus />
                     </Button>
                   </div>
@@ -552,7 +574,12 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
 
         {customer && bottles > 0 ? (
           <label className="flex items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-sm">
-            <input type="checkbox" className="size-5 accent-[rgb(var(--accent))]" checked={useCoupon} onChange={(e) => setUseCoupon(e.target.checked)} />
+            <input
+              type="checkbox"
+              className="size-5 accent-[rgb(var(--accent))]"
+              checked={useCoupon}
+              onChange={(e) => setUseCoupon(e.target.checked)}
+            />
             <span>
               Use coupon book for water <span className="text-muted">({bottles} left)</span>
             </span>
@@ -582,6 +609,9 @@ function NewOrderSheet({ onClose, onCreated }: { onClose: () => void; onCreated:
 function sortForOrdering(products: Product[]): Product[] {
   const rank = (p: Product) => (p.category === "water" ? 0 : 1);
   return [...products].sort(
-    (a, b) => rank(a) - rank(b) || (a.cross_sell_priority ?? 99) - (b.cross_sell_priority ?? 99) || (a.name_en ?? "").localeCompare(b.name_en ?? ""),
+    (a, b) =>
+      rank(a) - rank(b) ||
+      (a.cross_sell_priority ?? 99) - (b.cross_sell_priority ?? 99) ||
+      (a.name_en ?? "").localeCompare(b.name_en ?? ""),
   );
 }

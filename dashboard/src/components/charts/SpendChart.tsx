@@ -43,10 +43,24 @@ export function SpendChart({ spend, points }: { spend: Today["spend"]; points: T
     <div>
       <div ref={ref} className="relative px-2">
         {width > 0 ? (
-          <svg width={width} height={H} className="overflow-visible" role="img" aria-label={`Message spend this month: ${aed(spend.meta_cost_aed)}${cap ? ` of a ${aed(spend.cap_aed)} cap` : ""}`}>
+          <svg
+            width={width}
+            height={H}
+            className="overflow-visible"
+            role="img"
+            aria-label={`Message spend this month: ${aed(spend.meta_cost_aed)}${cap ? ` of a ${aed(spend.cap_aed)} cap` : ""}`}
+          >
             {ticks.map((t) => (
               <g key={t}>
-                <line x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} stroke="rgb(var(--line))" strokeWidth={1} shapeRendering="crispEdges" />
+                <line
+                  x1={PAD.left}
+                  x2={width - PAD.right}
+                  y1={y(t)}
+                  y2={y(t)}
+                  stroke="rgb(var(--line))"
+                  strokeWidth={1}
+                  shapeRendering="crispEdges"
+                />
                 <text x={PAD.left - 6} y={y(t)} dy="0.32em" textAnchor="end" className="tabular" fontSize={11} fill="rgb(var(--muted))">
                   {t.toLocaleString("en")}
                 </text>
@@ -54,29 +68,64 @@ export function SpendChart({ spend, points }: { spend: Today["spend"]; points: T
             ))}
             {cap !== null ? (
               <g>
-                <line x1={PAD.left} x2={width - PAD.right} y1={y(cap)} y2={y(cap)} stroke="rgb(var(--ink-2))" strokeWidth={1} shapeRendering="crispEdges" />
+                <line
+                  x1={PAD.left}
+                  x2={width - PAD.right}
+                  y1={y(cap)}
+                  y2={y(cap)}
+                  stroke="rgb(var(--ink-2))"
+                  strokeWidth={1}
+                  shapeRendering="crispEdges"
+                />
                 <text x={width - PAD.right} y={y(cap) - 5} textAnchor="end" fontSize={11} fill="rgb(var(--ink-2))">
                   Cap {aed(spend.cap_aed)}
                 </text>
               </g>
             ) : null}
-            {points.length > 1 ? (
-              <path d={`${line}V${y(0)}H${x(points[0]!.day)}Z`} fill="var(--series-wash)" />
-            ) : null}
+            {points.length > 1 ? <path d={`${line}V${y(0)}H${x(points[0]!.day)}Z`} fill="var(--series-wash)" /> : null}
             <path d={line} fill="none" stroke="var(--series)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
             {last ? (
-              <circle cx={x(last.day)} cy={y(Number(last.cumulative_aed))} r={4} fill="var(--series)" stroke="rgb(var(--surface))" strokeWidth={2} />
+              <circle
+                cx={x(last.day)}
+                cy={y(Number(last.cumulative_aed))}
+                r={4}
+                fill="var(--series)"
+                stroke="rgb(var(--surface))"
+                strokeWidth={2}
+              />
             ) : null}
             {[days[0], days[Math.floor(days.length / 2)], days[days.length - 1]].map((d, i) =>
               d ? (
-                <text key={d} x={x(d)} y={H - 6} textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"} fontSize={11} fill="rgb(var(--muted))">
+                <text
+                  key={d}
+                  x={x(d)}
+                  y={H - 6}
+                  textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}
+                  fontSize={11}
+                  fill="rgb(var(--muted))"
+                >
                   {dateLabel(d)}
                 </text>
               ) : null,
             )}
-            <line x1={PAD.left} x2={width - PAD.right} y1={y(0)} y2={y(0)} stroke="rgb(var(--baseline))" strokeWidth={1} shapeRendering="crispEdges" />
+            <line
+              x1={PAD.left}
+              x2={width - PAD.right}
+              y1={y(0)}
+              y2={y(0)}
+              stroke="rgb(var(--baseline))"
+              strokeWidth={1}
+              shapeRendering="crispEdges"
+            />
             {hover !== null && points[hover] ? (
-              <line x1={x(points[hover].day)} x2={x(points[hover].day)} y1={PAD.top} y2={y(0)} stroke="rgb(var(--baseline))" strokeWidth={1} />
+              <line
+                x1={x(points[hover].day)}
+                x2={x(points[hover].day)}
+                y1={PAD.top}
+                y2={y(0)}
+                stroke="rgb(var(--baseline))"
+                strokeWidth={1}
+              />
             ) : null}
             <rect
               x={PAD.left}

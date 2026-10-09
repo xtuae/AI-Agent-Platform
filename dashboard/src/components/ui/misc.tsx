@@ -35,9 +35,7 @@ export function StatusDot({ status, label }: { status: Health; label?: string })
   return (
     <span className="inline-flex items-center gap-1.5 text-sm">
       <span className="size-2.5 rounded-full" style={{ background: DOT[status] }} aria-hidden />
-      <span className={status === "ok" ? "text-good" : status === "degraded" ? "text-warn" : "text-bad"}>
-        {label ?? WORD[status]}
-      </span>
+      <span className={status === "ok" ? "text-good" : status === "degraded" ? "text-warn" : "text-bad"}>{label ?? WORD[status]}</span>
     </span>
   );
 }

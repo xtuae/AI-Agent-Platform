@@ -13,12 +13,7 @@ const OrdersChart = lazy(() => import("./OrdersChart").then((m) => ({ default: m
 function TodayTiles({ data }: { data: unknown }) {
   const d = data as OrdersToday;
   return (
-    <Tile
-      label="Orders today"
-      value={String(d.count)}
-      sub={`${aed(d.value_aed)} · ${d.deliveries_due} to deliver today`}
-      to="/orders"
-    />
+    <Tile label="Orders today" value={String(d.count)} sub={`${aed(d.value_aed)} · ${d.deliveries_due} to deliver today`} to="/orders" />
   );
 }
 

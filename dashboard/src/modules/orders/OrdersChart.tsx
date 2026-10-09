@@ -27,7 +27,15 @@ export function OrdersChart({ data }: { data: OrdersToday["by_day"] }) {
           <svg width={width} height={H} className="overflow-visible" role="img" aria-label="Orders per day, last 14 days">
             {ticks.map((t) => (
               <g key={t}>
-                <line x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} stroke="rgb(var(--line))" strokeWidth={1} shapeRendering="crispEdges" />
+                <line
+                  x1={PAD.left}
+                  x2={width - PAD.right}
+                  y1={y(t)}
+                  y2={y(t)}
+                  stroke="rgb(var(--line))"
+                  strokeWidth={1}
+                  shapeRendering="crispEdges"
+                />
                 <text x={PAD.left - 6} y={y(t)} dy="0.32em" textAnchor="end" className="tabular" fontSize={11} fill="rgb(var(--muted))">
                   {t}
                 </text>
@@ -74,7 +82,15 @@ export function OrdersChart({ data }: { data: OrdersToday["by_day"] }) {
                 </g>
               );
             })}
-            <line x1={PAD.left} x2={width - PAD.right} y1={y(0)} y2={y(0)} stroke="rgb(var(--baseline))" strokeWidth={1} shapeRendering="crispEdges" />
+            <line
+              x1={PAD.left}
+              x2={width - PAD.right}
+              y1={y(0)}
+              y2={y(0)}
+              stroke="rgb(var(--baseline))"
+              strokeWidth={1}
+              shapeRendering="crispEdges"
+            />
           </svg>
         ) : (
           <div style={{ height: H }} />

@@ -194,7 +194,13 @@ function ThreadView({ id }: { id: string }) {
   return (
     <Card className="flex h-[calc(100dvh-9rem)] flex-col md:h-full">
       <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-        <Button variant="ghost" size="icon" className="md:hidden" aria-label="Back to chats" onClick={() => navigate(`/conversations${params.get("tab") ? `?tab=${params.get("tab")}` : ""}`)}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          aria-label="Back to chats"
+          onClick={() => navigate(`/conversations${params.get("tab") ? `?tab=${params.get("tab")}` : ""}`)}
+        >
           <ArrowLeft className="size-5" />
         </Button>
         <div className="min-w-0 flex-1">
@@ -233,7 +239,11 @@ function ThreadView({ id }: { id: string }) {
             {" "}
             · the agent is paused{t.assigned_to_name ? ` · ${mine ? "you have it" : t.assigned_to_name}` : ""}
           </span>
-          {t.escalation?.summary ? <p className="mt-0.5 text-ink-2" dir="auto">{t.escalation.summary}</p> : null}
+          {t.escalation?.summary ? (
+            <p className="mt-0.5 text-ink-2" dir="auto">
+              {t.escalation.summary}
+            </p>
+          ) : null}
           {human && !mine && !isAdmin && canAct ? (
             <p className="mt-0.5 text-xs text-muted">Only the person who took it over (or an admin) can reply.</p>
           ) : null}
@@ -244,7 +254,9 @@ function ThreadView({ id }: { id: string }) {
         {t.summary ? (
           <details className="mx-auto mb-3 max-w-md rounded-lg border border-line px-3 py-2 text-xs text-ink-2">
             <summary className="cursor-pointer text-muted">Earlier conversation summary</summary>
-            <p className="mt-1" dir="auto">{t.summary}</p>
+            <p className="mt-1" dir="auto">
+              {t.summary}
+            </p>
           </details>
         ) : null}
         {t.messages.map((m) => (
@@ -282,8 +294,11 @@ function ThreadView({ id }: { id: string }) {
           </form>
         ) : (
           <p className="border-t border-line px-4 py-3 text-sm text-muted">
-            The customer last wrote over 24 hours ago, so WhatsApp only allows an approved template here (coming with campaigns).
-            Call them instead: <a className="text-accent-ink" href={`tel:+${t.customer.wa_id}`}>{phone(t.customer.wa_id)}</a>
+            The customer last wrote over 24 hours ago, so WhatsApp only allows an approved template here (coming with campaigns). Call them
+            instead:{" "}
+            <a className="text-accent-ink" href={`tel:+${t.customer.wa_id}`}>
+              {phone(t.customer.wa_id)}
+            </a>
           </p>
         )
       ) : null}
@@ -317,13 +332,23 @@ function Bubble({ m }: { m: MessageOut }) {
   const inbound = m.direction === "in";
   const text = m.transcript ?? m.body;
   const who =
-    m.author === "person" ? (m.sent_by_name ?? "Team") : m.author === "agent" ? "Agent" : m.author === "template" ? `Template · ${m.template_name}` : null;
+    m.author === "person"
+      ? (m.sent_by_name ?? "Team")
+      : m.author === "agent"
+        ? "Agent"
+        : m.author === "template"
+          ? `Template · ${m.template_name}`
+          : null;
   return (
     <div className={cn("flex", inbound ? "justify-start" : "justify-end")}>
       <div
         className={cn(
           "max-w-[85%] rounded-2xl px-3 py-2 text-sm md:max-w-[70%]",
-          inbound ? "rounded-bl-sm border border-line bg-surface" : m.author === "person" ? "rounded-br-sm bg-accent-fill text-white" : "rounded-br-sm bg-accent/10",
+          inbound
+            ? "rounded-bl-sm border border-line bg-surface"
+            : m.author === "person"
+              ? "rounded-br-sm bg-accent-fill text-white"
+              : "rounded-br-sm bg-accent/10",
         )}
       >
         {who ? (
@@ -335,7 +360,10 @@ function Bubble({ m }: { m: MessageOut }) {
         <p className="whitespace-pre-wrap break-words" dir="auto">
           {text ?? `[${m.msg_type ?? "message"}]`}
         </p>
-        <p className={cn("mt-0.5 text-right text-[11px]", m.author === "person" ? "text-white/80" : "text-muted")} title={dateTime(m.created_at)}>
+        <p
+          className={cn("mt-0.5 text-right text-[11px]", m.author === "person" ? "text-white/80" : "text-muted")}
+          title={dateTime(m.created_at)}
+        >
           {timeOnly(m.created_at)}
           {!inbound && m.status ? ` · ${m.status}` : ""}
           {m.error_code ? ` · error ${m.error_code}` : ""}

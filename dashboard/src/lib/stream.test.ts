@@ -20,11 +20,7 @@ describe("parseSse", () => {
 
 describe("keysFor", () => {
   it("a message refreshes its thread and the inbox", () => {
-    expect(keysFor({ entity: "messages", id: "m", op: "insert", parent: "c1" })).toEqual([
-      ["conversations"],
-      ["thread", "c1"],
-      ["today"],
-    ]);
+    expect(keysFor({ entity: "messages", id: "m", op: "insert", parent: "c1" })).toEqual([["conversations"], ["thread", "c1"], ["today"]]);
   });
   it("resync refreshes everything", () => {
     expect(keysFor({ entity: "resync", id: null, op: null, parent: null })).toEqual([[]]);
