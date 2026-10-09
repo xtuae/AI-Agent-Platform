@@ -57,8 +57,11 @@
     l_label: "اسم لوحة التحكم الخاصة بك",
     l_err: "استخدم الحروف الإنجليزية والأرقام والشرطات فقط.",
     cancel: "إلغاء",
-    go: "متابعة"
+    go: "متابعة",
+    chat_in: "مرحبا، أبي ٥ كراتين ماي ٥٠٠ مل لبكرة"
   };
+  // Keys whose element must also switch writing direction (the phone mock-up itself stays ltr).
+  var DIRECTIONAL = ["chat_in"];
 
   function store(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -84,6 +87,10 @@
       nodes.forEach(function (n) {
         var k = n.getAttribute("data-i18n");
         if (dict[k]) n.textContent = dict[k];
+        if (DIRECTIONAL.indexOf(k) >= 0) {
+          n.dir = lang === "ar" ? "rtl" : "ltr";
+          n.lang = lang;
+        }
       });
       root.lang = lang;
       root.dir = lang === "ar" ? "rtl" : "ltr";
