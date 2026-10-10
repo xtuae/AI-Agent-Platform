@@ -1071,20 +1071,37 @@ It never touches the live data.
 The platform can message HMH Labz staff on WhatsApp when something is wrong (database down,
 backups failing, a client's quality rating dropping…).
 
-> ⚠️ **One missing piece in the code today.** Alerts are sent *from HMH Labz's own WhatsApp
-> number*, which must exist on the platform as a tenant (`ALERT_TENANT_SLUG`). The
-> `seed_tenant` script currently only knows the **aquamena** profile, so an HMH Labz tenant
-> can't be created yet. Ask engineering (Claude Code) to *"add an `hmhlabz` profile to
-> `TENANT_PROFILES` in `api/scripts/seed_tenant.py`"*. It's a small change. **Do not** set
-> `ALERT_TENANT_SLUG=aquamena`: alerts would then come from the client's number.
-
-When the HMH Labz tenant exists:
+Alerts are sent *from HMH Labz's own WhatsApp number*, which exists on the platform as an
+internal tenant with the slug **`hmhlabz`** (no modules, no catalog, no message cap). **Do not**
+set `ALERT_TENANT_SLUG=aquamena`: alerts would then come from the client's number.
 
 1. **Template.** In HMH Labz's WhatsApp Manager → **Message templates** → **Create**:
    - Category **Utility**, name **`platform_alert`**, language **English**
    - Body: `HMH Labz platform alert: {{1}} Check the console for details.`
    - Submit and wait for **Approved** (minutes to a day).
-2. **Create the tenant** like Part 13.2, with `--slug hmhlabz` and HMH Labz's own number's IDs.
+2. **Create the HMH Labz tenant.** You need HMH Labz's own number's **Phone number ID** and
+   **WhatsApp Business Account ID** (as in Part 12.5, for HMH Labz's own WABA) and a Meta
+   system-user token that can send from that number (Part 12.4; link the WABA as in 12.6).
+
+   🖥️ Server — first paste the token at a hidden prompt (nothing shows while typing):
+   ```bash
+   read -rs SEED_META_ACCESS_TOKEN; echo; export SEED_META_ACCESS_TOKEN
+   ```
+   Then run (replace the CAPITALS):
+
+   🖥️ Server
+   ```bash
+   dc run --rm -e SEED_META_ACCESS_TOKEN \
+     api python -m api.scripts.seed_tenant --slug hmhlabz \
+     --phone-number-id HMH_PHONE_NUMBER_ID --waba-id HMH_WABA_ID \
+     --display-phone "+971 5X XXX XXXX"
+   unset SEED_META_ACCESS_TOKEN
+   ```
+   - No `--catalog`, `--admin-email` or `--escalation-phone`: this tenant only sends alerts.
+     The `seed_catalog_empty` warning at the end is expected.
+   - Success ends with a `seed_done` line with `access_token_set=true`. Safe to run again.
+   - Check: `dc run --rm api python -m api.scripts.channel_token list` shows the HMH Labz
+     number with **token set**.
 3. **Settings** in `.env`:
    ```
    ALERT_TENANT_SLUG=hmhlabz
