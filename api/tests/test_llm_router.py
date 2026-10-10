@@ -99,18 +99,93 @@ async def test_failover_to_openrouter_with_equivalent_model() -> None:
     assert g.requests[-1].headers["authorization"] == "Bearer or-key"
 
 
-async def test_gemini_thinking_off_by_default_not_sent_to_openrouter() -> None:
-    # thinking counts against max_tokens on Gemini 3.x (replies came back cut off)
+async def test_reasoning_none_is_minimal_on_gemini_3_on_both_providers() -> None:
+    # Gemini 3.x can't stop thinking: "none" was a 400 on gemini-3.5-flash-lite (prod, 10 Oct)
     g = Graph(httpx.Response(500), httpx.Response(500), httpx.Response(500), ok("x"))
     await chat(router(g, []))
-    assert json.loads(g.requests[0].content)["reasoning_effort"] == "none"
-    assert "reasoning_effort" not in json.loads(g.requests[-1].content)
+    first, last = json.loads(g.requests[0].content), json.loads(g.requests[-1].content)
+    assert first["reasoning_effort"] == "minimal"
+    assert "reasoning" not in first
+    assert last["reasoning"] == {"effort": "minimal"}  # OpenRouter's parameter
+    assert "reasoning_effort" not in last
+
+
+async def test_reasoning_none_stays_none_on_gemini_2() -> None:
+    g = Graph(ok("x"))
+    await router(g, []).chat(
+        provider="openrouter", model="gemini-2.5-flash-lite", messages=[], json_mode=True
+    )
+    assert json.loads(g.requests[0].content)["reasoning"] == {"effort": "none"}
+
+
+async def test_reasoning_not_sent_for_non_gemini_models() -> None:
+    g = Graph(ok("x"))
+    await router(g, []).chat(provider="openrouter", model="openai/gpt-x", messages=[])
+    body = json.loads(g.requests[0].content)
+    assert "reasoning" not in body
+    assert "reasoning_effort" not in body
+
+
+async def test_thought_signatures_round_trip_in_tool_history() -> None:
+    # Gemini 3 400s a tool-call history whose signatures were dropped (prod, via OpenRouter)
+    call: dict[str, Any] = {
+        "id": "c1",
+        "type": "function",
+        "function": {"name": "get_customer_context", "arguments": "{}"},
+        "extra_content": {"google": {"thought_signature": "sig-g"}},
+    }
+    details = [{"type": "reasoning.encrypted", "id": "c1", "data": "sig-or"}]
+    resp = ok("", tool_calls=[call])
+    body = resp.json()
+    body["choices"][0]["message"]["reasoning_details"] = details
+    g = Graph(httpx.Response(200, json=body))
+    res = await chat(router(g, []))
+    msg = res.assistant_message()
+    assert msg["tool_calls"][0]["extra_content"] == call["extra_content"]
+    assert msg["reasoning_details"] == details
+
+
+async def test_foreign_signature_fields_are_stripped_per_provider() -> None:
+    history: list[dict[str, Any]] = [
+        {"role": "user", "content": "x"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "t", "arguments": "{}"},
+                    "extra_content": {"google": {"thought_signature": "s"}},
+                }
+            ],
+            "reasoning_details": [{"type": "reasoning.encrypted", "data": "s"}],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "{}"},
+    ]
+    g = Graph(httpx.Response(503), httpx.Response(503), httpx.Response(503), ok("x"))
+    await router(g, []).chat(provider="gemini", model="gemini-3.5-flash", messages=history)
+    to_gemini = json.loads(g.requests[0].content)["messages"][1]
+    to_openrouter = json.loads(g.requests[-1].content)["messages"][1]
+    assert "reasoning_details" not in to_gemini
+    assert "extra_content" in to_gemini["tool_calls"][0]
+    assert "extra_content" not in to_openrouter["tool_calls"][0]
+    assert "reasoning_details" in to_openrouter
+
+
+async def test_rejected_request_carries_provider_error_message() -> None:
+    err = [{"error": {"code": 400, "message": "Invalid reasoning_effort", "status": "BAD"}}]
+    g = Graph(httpx.Response(400, json=err))
+    with pytest.raises(LLMRequestError, match="Invalid reasoning_effort"):
+        await chat(router(g, []))
 
 
 async def test_gemini_reasoning_effort_empty_is_omitted() -> None:
     g = Graph(ok("x"))
     await chat(router(g, [], gemini_reasoning_effort=None))
-    assert "reasoning_effort" not in json.loads(g.requests[0].content)
+    body = json.loads(g.requests[0].content)
+    assert "reasoning_effort" not in body
+    assert "reasoning" not in body
 
 
 async def test_both_down_raises_unavailable() -> None:

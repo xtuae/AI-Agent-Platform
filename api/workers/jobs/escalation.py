@@ -70,7 +70,12 @@ async def notify_escalation(
     phone = ts.escalation_phone if ts else None
     template = ((ts.feature_flags if ts else None) or {}).get("escalation_template")
     if not phone or not isinstance(template, dict) or not template.get("name"):
-        log.warning("escalation_notify_unconfigured", tenant_id=tenant_id, has_phone=bool(phone))
+        log.warning(
+            "escalation_notify_unconfigured",
+            tenant_id=tenant_id,
+            has_phone=bool(phone),
+            has_template=isinstance(template, dict) and bool(template.get("name")),
+        )
         return {"status": "unconfigured"}
 
     async with db.tenant_session(tid) as s:

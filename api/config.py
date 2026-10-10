@@ -60,7 +60,9 @@ class Settings(BaseSettings):
     llm_connect_timeout_s: float = Field(default=5.0, gt=0)
     # Gemini 3.x "thinks" by default and the thinking counts against max_tokens: at 300 tokens a
     # reply came back cut off ("Hi! At HMH Labz,") or empty. Short WhatsApp turns don't need it.
-    # Sent as reasoning_effort on Gemini's OpenAI-compatible endpoint; empty = omit (model default).
+    # Sent for Gemini models on both providers (Gemini: reasoning_effort, OpenRouter:
+    # reasoning.effort); empty = omit (model default). "none" only exists on Gemini 2.x and is
+    # sent as "minimal" to 3.x models (see LLMRouter._reasoning_effort).
     gemini_reasoning_effort: str | None = "none"
     # USD per 1M tokens (input, output), keyed by model id without provider prefix. A model with
     # no entry is metered at 0 and logged as `llm_price_unknown` — fill this in, don't guess.

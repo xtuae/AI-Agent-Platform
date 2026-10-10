@@ -148,6 +148,26 @@ stored encrypted. Then revoke the old token in Meta Business Manager.
    on the tenant row (console margin and reimbursement ledger read them).
 7. `python -m api.scripts.dpa --slug <slug> > dpa-<slug>.md` — review, send with the contract.
 
+## Escalation alerts to staff
+
+When a conversation is handed over, the tenant's escalation number gets a WhatsApp alert. Staff
+are usually outside the 24 h window, so it must be an **approved Utility template** on the
+tenant's WABA, with three body variables: `{{1}}` reason, `{{2}}` customer, `{{3}}` summary.
+For example: "Customer needs a human ({{1}}). Customer: {{2}}. Summary: {{3}}".
+
+1. Create it in WhatsApp Manager (category Utility) and wait for approval.
+2. Point the tenant at it (the escalation number itself comes from `seed_tenant --escalation-phone`):
+
+```sql
+UPDATE tenant_settings
+   SET feature_flags = coalesce(feature_flags, '{}'::jsonb)
+       || '{"escalation_template": {"name": "handover_alert", "language": "en"}}'
+ WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'aquamena');
+```
+
+3. The alert is metered as utility: the staff number's market needs a utility rate row, or the
+   worker logs `escalation_notify_unpriced` and skips it.
+
 ## Connect a client's Telegram bot
 
 Needs `PUBLIC_API_BASE_URL` in `.env` (e.g. `https://api.heyozo.com`): Telegram is told to
@@ -186,7 +206,9 @@ customers who started the bot and have not blocked it.
 | Postgres unreachable — webhooks parked | DB down; messages wait in Redis | Fix Postgres (`dc ps`, `dc logs postgres`, disk). They replay by themselves within 30 s of recovery. |
 | Job queue depth > 500 | workers behind | `dc ps worker`; `dc logs worker`; scale: `dc up -d --scale worker=2`. |
 | LLM failover | Gemini failing, OpenRouter answering | Check Google AI status / key / quota. Nothing for customers to notice. |
-| `llm_model_not_found` | Gemini answered 404 for the tenant's model (retired / wrong id); OpenRouter answering | Move the tenant to a current id (`tenant_settings.llm_model_chat` / `llm_model_classify`) — see Google's deprecations page. If OpenRouter 404s too the turn fails with no reply. |
+| `llm_model_not_found` | Gemini answered 404 for the tenant's model (retired / wrong id); OpenRouter answering | Move the tenant to a current id (`tenant_settings.llm_model_chat` / `llm_model_classify`) — see Google's deprecations page. If OpenRouter 404s too, the turn hands over to a human. |
+| `llm_request_rejected` | a provider answered 4xx; `detail` is the provider's own error message | 404: see above. 400: usually a parameter the model does not accept (e.g. a reasoning level) — the detail names it. |
+| `escalation_notify_unconfigured` | a handover happened but staff got no WhatsApp alert | Needs **both** `has_phone` and `has_template` true: set the escalation template (below). |
 | Both LLM providers failed | customers get the holding message; turns retry, then hand over | Check both providers' keys and spend caps. |
 | Quality rating changed | Meta moved a number's rating | YELLOW pauses marketing, RED cancels it — see next section. |
 | Tenant at 80% of cap | a tenant's message spend nears its cap | Tell the client; raise the cap only with their written OK. |

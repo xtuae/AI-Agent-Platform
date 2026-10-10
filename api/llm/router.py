@@ -11,8 +11,15 @@ No LiteLLM, no SDK.
   not retried, but failed over — the other provider may still have it, and a reply beats silence.
   If every provider 404s it is a config bug: LLMRequestError.
 * Any other non-429 4xx is our bug (bad request), not an outage: LLMRequestError, no failover.
+* Thinking (Gemini 3.x thinks by default and it eats max_tokens) is turned down per model, on
+  both providers: see _reasoning_effort.
+* Thought signatures come back on tool calls (Gemini: tool_calls[].extra_content; OpenRouter:
+  message.reasoning_details) and must be sent back with the tool-call history, or Gemini 3
+  rejects the next round with a 400. assistant_message() carries them; _for_provider strips the
+  other provider's field after a failover.
 * Every call returns model, prompt/completion tokens, latency and USD cost for metering.
-* Request and response bodies (customer text) are never logged.
+* Request and response bodies (customer text) are never logged. A rejected request logs the
+  provider's error message (truncated), which describes our request, not the conversation.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ log = get_logger(__name__)
 RETRY_BACKOFF_S: Final = (0.5, 2.0)
 RETRY_STATUSES: Final = frozenset({429, 500, 502, 503, 504})
 _MTOK: Final = Decimal(1_000_000)
+_ERROR_DETAIL_MAX: Final = 300
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -60,6 +68,7 @@ class ToolCall:
     id: str
     name: str
     arguments: str  # JSON string, validated by the tool's Pydantic model
+    extra_content: dict[str, Any] | None = None  # Gemini's thought signature rides here
 
 
 @dataclass(frozen=True)
@@ -73,8 +82,10 @@ class LLMResult:
     latency_ms: int
     cost_usd: Decimal
     finish_reason: str | None = None
+    reasoning_details: list[Any] | None = None  # OpenRouter's thought signatures
 
     def assistant_message(self) -> dict[str, Any]:
+        """The assistant turn for the history, signatures included (sent back unmodified)."""
         msg: dict[str, Any] = {"role": "assistant", "content": self.content}
         if self.tool_calls:
             msg["tool_calls"] = [
@@ -82,9 +93,12 @@ class LLMResult:
                     "id": c.id,
                     "type": "function",
                     "function": {"name": c.name, "arguments": c.arguments},
+                    **({"extra_content": c.extra_content} if c.extra_content else {}),
                 }
                 for c in self.tool_calls
             ]
+        if self.reasoning_details:
+            msg["reasoning_details"] = self.reasoning_details
         return msg
 
 
@@ -231,9 +245,12 @@ class LLMRouter:
     async def _call(self, prov: _Provider, model: str, body: dict[str, Any]) -> LLMResult:
         url = prov.base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {prov.api_key}", **prov.extra_headers}
-        payload = {**body, "model": model}
-        if prov.name == "gemini" and self._settings.gemini_reasoning_effort:
-            payload["reasoning_effort"] = self._settings.gemini_reasoning_effort
+        payload = {**body, "model": model, "messages": _for_provider(body["messages"], prov.name)}
+        effort = self._reasoning_effort(model)
+        if effort and prov.name == "gemini":
+            payload["reasoning_effort"] = effort
+        elif effort:
+            payload["reasoning"] = {"effort": effort}  # OpenRouter's unified parameter
         started = time.perf_counter()
         try:
             resp = await self._http.post(url, json=payload, headers=headers, timeout=self._timeout)
@@ -245,10 +262,20 @@ class LLMRouter:
 
         if resp.status_code in RETRY_STATUSES:
             raise _RetryableError(f"http_{resp.status_code}")
-        if resp.status_code == 404:
-            raise _ModelNotFoundError(f"{prov.name} has no model {model!r}: HTTP 404")
         if resp.status_code >= 400:
-            raise LLMRequestError(f"{prov.name} rejected the request: HTTP {resp.status_code}")
+            detail = _error_detail(resp)
+            log.error(
+                "llm_request_rejected",
+                provider=prov.name,
+                model=model,
+                status=resp.status_code,
+                detail=detail,
+            )
+            if resp.status_code == 404:
+                raise _ModelNotFoundError(f"{prov.name} has no model {model!r}: HTTP 404")
+            raise LLMRequestError(
+                f"{prov.name} rejected the request: HTTP {resp.status_code}: {detail}"
+            )
         try:
             data = resp.json()
             choice = data["choices"][0]
@@ -261,6 +288,9 @@ class LLMRouter:
                 id=str(tc.get("id") or f"call_{i}"),
                 name=str(tc["function"]["name"]),
                 arguments=_as_json_string(tc["function"].get("arguments")),
+                extra_content=tc.get("extra_content")
+                if isinstance(tc.get("extra_content"), dict)
+                else None,
             )
             for i, tc in enumerate(message.get("tool_calls") or [])
             if isinstance(tc, dict) and tc.get("function")
@@ -278,6 +308,9 @@ class LLMRouter:
             latency_ms=latency_ms,
             cost_usd=self.cost(model, prompt_tokens, completion_tokens),
             finish_reason=choice.get("finish_reason"),
+            reasoning_details=message.get("reasoning_details")
+            if isinstance(message.get("reasoning_details"), list)
+            else None,
         )
         log.info(
             "llm_call",
@@ -290,6 +323,22 @@ class LLMRouter:
         )
         return result
 
+    def _reasoning_effort(self, model: str) -> str | None:
+        """GEMINI_REASONING_EFFORT for a Gemini model id, on whichever provider serves it.
+
+        "none" turns thinking off on Gemini 2.x only. Gemini 3.x cannot stop thinking: Google's
+        OpenAI-compatibility page says so, OpenRouter lists those models as reasoning-mandatory,
+        and gemini-3.5-flash-lite answered "none" with HTTP 400 on prod. "minimal" is the lowest
+        level every 3.x model accepts, so "none" becomes "minimal" there.
+        """
+        effort = self._settings.gemini_reasoning_effort
+        bare = model.removeprefix(self._settings.openrouter_model_prefix)
+        if not effort or not bare.startswith("gemini-"):
+            return None  # not a Gemini model (e.g. another vendor on OpenRouter): its default
+        if effort == "none" and not bare.startswith("gemini-2"):
+            return "minimal"
+        return effort
+
     def cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> Decimal:
         key = model.removeprefix(self._settings.openrouter_model_prefix)
         prices = self._settings.llm_prices_usd_per_mtok.get(key)
@@ -297,6 +346,41 @@ class LLMRouter:
             log.warning("llm_price_unknown", model=key)
             return Decimal(0)
         return (prices[0] * prompt_tokens + prices[1] * completion_tokens) / _MTOK
+
+
+def _for_provider(messages: list[dict[str, Any]], provider: str) -> list[dict[str, Any]]:
+    """Drop the other provider's signature field (history built before a failover)."""
+    if provider == "gemini":
+        if not any("reasoning_details" in m for m in messages):
+            return messages
+        return [{k: v for k, v in m.items() if k != "reasoning_details"} for m in messages]
+    if not any("extra_content" in tc for m in messages for tc in m.get("tool_calls") or ()):
+        return messages
+    return [
+        {
+            **m,
+            "tool_calls": [
+                {k: v for k, v in tc.items() if k != "extra_content"} for tc in m["tool_calls"]
+            ],
+        }
+        if m.get("tool_calls")
+        else m
+        for m in messages
+    ]
+
+
+def _error_detail(resp: httpx.Response) -> str:
+    """The provider's error message (Gemini sends a dict or a one-element list), truncated."""
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp.text[:_ERROR_DETAIL_MAX]
+    if isinstance(data, list) and data:
+        data = data[0]
+    err = data.get("error") if isinstance(data, dict) else None
+    if isinstance(err, dict):
+        return str(err.get("message") or err)[:_ERROR_DETAIL_MAX]
+    return str(err or data)[:_ERROR_DETAIL_MAX]
 
 
 def _as_json_string(arguments: object) -> str:

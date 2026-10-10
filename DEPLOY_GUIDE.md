@@ -877,6 +877,8 @@ unset SEED_META_ACCESS_TOKEN SEED_ADMIN_PASSWORD
 
 - `--escalation-phone` is the Aquamena staff number that is told when a customer needs a human.
   Digits only, starting with `971`, no `+`.
+  The alert only goes out once an approved Utility template is set as well (without it the
+  worker logs `escalation_notify_unconfigured`): see RUNBOOK → "Escalation alerts to staff".
 - Optional: add `--service-start 2026-11-01 --free-months-until 2027-01-31` when the contract
   dates are confirmed.
 - Success ends with a `seed_done` line showing the number of products and coupon packages.
