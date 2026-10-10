@@ -23,6 +23,10 @@ from api.metering import PRICING_CATEGORIES, PricingCategory
 # (and add meta_rates rows for them at the same time).
 _CALLING_CODES: Final[dict[str, str]] = {
     "971": "AE",
+    # India: added for testing from +91 phones. Only a `service` rate row exists for IN (free
+    # within the customer-service window, per Meta's pricing page); marketing/utility/auth stay
+    # unpriced until rows from Meta's INR rate card are added, so those sends are refused.
+    "91": "IN",
 }
 
 _RATE_SQL = text(
