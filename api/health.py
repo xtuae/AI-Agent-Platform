@@ -1,4 +1,8 @@
-"""GET /health — {status, db, redis, version, git_sha}. 200 when healthy, 503 when degraded."""
+"""GET /health — {status, db, redis, version, git_sha}. 200 when healthy, 503 when degraded.
+
+HEAD /health gives the same status code without the body: uptime monitors such as
+UptimeRobot's free plan can only send HEAD, and a GET-only route answers them 405.
+"""
 
 from __future__ import annotations
 
@@ -49,6 +53,7 @@ async def _check_redis(redis: RedisDep) -> Check:
 
 
 @router.get("/health", response_model=HealthResponse)
+@router.head("/health", include_in_schema=False)
 async def health(response: Response, db: DatabaseDep, redis: RedisDep) -> HealthResponse:
     db_status, redis_status = await asyncio.gather(_check_db(db), _check_redis(redis))
     healthy = db_status == "ok" and redis_status == "ok"

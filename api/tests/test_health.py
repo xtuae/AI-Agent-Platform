@@ -37,6 +37,13 @@ async def test_health_ok(client: httpx.AsyncClient) -> None:
     assert set(body) == {"status", "db", "redis", "version", "git_sha"}
 
 
+async def test_health_head(client: httpx.AsyncClient) -> None:
+    # free uptime monitors send HEAD only; a GET-only route would answer 405
+    r = await client.head("/health")
+    assert r.status_code == 200
+    assert r.content == b""
+
+
 async def test_health_degraded_when_redis_down(app: FastAPI, client: httpx.AsyncClient) -> None:
     real = app.state.redis
     app.state.redis = Redis.from_url("redis://127.0.0.1:1/0", socket_connect_timeout=0.2)
