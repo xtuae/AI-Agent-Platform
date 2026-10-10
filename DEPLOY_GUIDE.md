@@ -596,7 +596,7 @@ Change these lines. Leave every line not listed here as it is.
 | `META_VERIFY_TOKEN=` | from 8.2 | You will paste the same value into Meta in Part 12. |
 | `GOOGLE_AI_API_KEY=` | your Google AI key | |
 | `OPENROUTER_API_KEY=` | your OpenRouter key | |
-| `LLM_PRICES_USD_PER_MTOK=` | keep, and **add** the price of the model you use from Google's price list, e.g. `{"gemini-2.5-flash-lite": ["0.10", "0.40"], "gemini-3-flash": ["IN", "OUT"]}` | Without it, AI cost shows as 0 in the dashboards. |
+| `LLM_PRICES_USD_PER_MTOK=` | keep, and **add** the price of the model you use from Google's price list, e.g. `{"gemini-3.5-flash-lite": ["0.30", "2.50"]}` (gemini-3.5-flash has no published price yet) | Without it, AI cost shows as 0 in the dashboards. |
 | `DB_BACKUP_PASSWORD=` | from 8.2 | |
 | `BACKUP_AGE_RECIPIENT=` | the `age1…` public key from Part 2.4 | |
 | `BACKUP_BUCKET=` … `BACKUP_SECRET_ACCESS_KEY=` | from Part 14.1 | Can stay empty until Part 14. |
