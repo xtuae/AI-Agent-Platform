@@ -189,9 +189,16 @@ services:
 
   # Status page (Phase 6): status.<domain>, behind basic auth in Caddy. Monitors /health and the
   # dashboard from inside; UptimeRobot checks api.<domain>/health from outside (RUNBOOK.md).
+  # v2 (pinned; upstream recommends the `2` line). First start after v1 migrates the SQLite data in
+  # the volume: back it up first and do not stop the container mid-migration (RUNBOOK.md).
+  # Full image, not -slim and not -rootless: rootless breaks the v1 upgrade.
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: louislam/uptime-kuma:2.5.6
     restart: unless-stopped
+    environment:
+      # SQLite in the volume, as in v1; skips the database-choice page on a fresh volume so nobody
+      # picks the embedded MariaDB, which would not fit in the memory limit below.
+      UPTIME_KUMA_DB_TYPE: sqlite
     volumes:
       - uptimekuma:/app/data
     deploy:

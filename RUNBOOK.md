@@ -38,7 +38,7 @@ Provision the box as in `01_architecture.md` §11.1 (hardening, Docker, swap, sy
 4. **Staff login for the console:**
    `dc run --rm api python -m api.scripts.platform_users add --email you@hmhlabz.com --role owner`
    — scan the QR it prints with an authenticator app. It is shown once.
-5. **Status page:** open `https://status.<domain>`, create the Uptime Kuma admin, add monitors:
+5. **Status page:** open `https://status.<domain>`, create the Uptime Kuma (v2) admin, add monitors:
    `http://api:8000/health` (every 60 s), `https://<tenant>.<domain>/` and
    `https://go.<domain>/q/x` (expects 404 — proves the page host is up).
 6. **External uptime evidence:** UptimeRobot (free) HTTP(S) monitor on
@@ -99,6 +99,26 @@ row count with the backup's manifest — exit code 0 and "Row counts match" mean
 To put a restored database into service: stop `api worker scheduler`, rename databases in psql
 (`ALTER DATABASE agents RENAME TO agents_broken; ALTER DATABASE agents_restore_… RENAME TO agents;`),
 start them again. Webhooks that arrive meanwhile wait in Redis (see below).
+
+## Upgrade Uptime Kuma
+
+The image is pinned in `docker-compose.yml`. Patch releases within 2.x: change the tag, deploy.
+A release that migrates the database (as v1 → v2 did) rewrites the SQLite file in the
+`uptimekuma` volume on first start, so copy the volume first; Kuma's JSON export is gone in v2
+and this copy is the only backup:
+
+```bash
+dc stop uptime-kuma
+mkdir -p ~/backups
+docker run --rm -v hmh-agents_uptimekuma:/data:ro -v ~/backups:/backup alpine \
+  tar czf /backup/uptimekuma-$(date -u +%Y%m%dT%H%M%SZ).tgz -C /data .
+deploy/deploy.sh <sha>
+dc logs -f uptime-kuma        # wait for the migration to finish; do NOT stop it midway
+```
+
+(The compose project is `hmh-agents`; `docker volume ls | grep uptimekuma` confirms the name.)
+Rollback: `dc stop uptime-kuma`, empty the volume and untar the copy into it, then deploy the
+previous sha. The older Kuma cannot run on a database the newer one has migrated.
 
 ## Rotate a Meta token
 
