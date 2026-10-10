@@ -100,6 +100,13 @@ TENANT_PROFILES: dict[str, TenantProfile] = {
         modules=("water_delivery",),
         contact_label="Customers",
     ),
+    # HMH Labz's own WhatsApp number: an internal tenant that sends the `platform_alert`
+    # utility template to staff (ALERT_TENANT_SLUG=hmhlabz; RUNBOOK.md "Alerts"). No modules
+    # (nothing to sell, no campaigns), no catalog, no message cap (it is our own spend).
+    "hmhlabz": TenantProfile(
+        name="HMH Labz",
+        legal_name="HMH Labz LLP",  # 01_architecture.md author line; landing/terms.html
+    ),
 }
 
 
