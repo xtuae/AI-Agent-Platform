@@ -1104,6 +1104,8 @@ What each alert means and what to do: see `RUNBOOK.md` → *Alerts: what each on
 
 1. Open `https://status.heyozo.com` → log in with `hmh` + the status password (Part 8.3).
 2. First time: create the Uptime Kuma **admin account** → save in password manager.
+   (It is Uptime Kuma v2. If it ever asks which database to use, something is off: the server
+   is set to SQLite. Upgrading it later: `RUNBOOK.md` → *Upgrade Uptime Kuma*.)
 3. **Add New Monitor** three times:
 
 | Monitor type | Friendly name | URL | Interval |
