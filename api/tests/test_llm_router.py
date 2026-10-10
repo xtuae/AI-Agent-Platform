@@ -99,6 +99,20 @@ async def test_failover_to_openrouter_with_equivalent_model() -> None:
     assert g.requests[-1].headers["authorization"] == "Bearer or-key"
 
 
+async def test_gemini_thinking_off_by_default_not_sent_to_openrouter() -> None:
+    # thinking counts against max_tokens on Gemini 3.x (replies came back cut off)
+    g = Graph(httpx.Response(500), httpx.Response(500), httpx.Response(500), ok("x"))
+    await chat(router(g, []))
+    assert json.loads(g.requests[0].content)["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in json.loads(g.requests[-1].content)
+
+
+async def test_gemini_reasoning_effort_empty_is_omitted() -> None:
+    g = Graph(ok("x"))
+    await chat(router(g, [], gemini_reasoning_effort=None))
+    assert "reasoning_effort" not in json.loads(g.requests[0].content)
+
+
 async def test_both_down_raises_unavailable() -> None:
     g = Graph(*[httpx.Response(503)] * 4)
     with pytest.raises(LLMUnavailableError):

@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     openrouter_model_prefix: str = "google/"
     llm_timeout_s: float = Field(default=20.0, gt=0)
     llm_connect_timeout_s: float = Field(default=5.0, gt=0)
+    # Gemini 3.x "thinks" by default and the thinking counts against max_tokens: at 300 tokens a
+    # reply came back cut off ("Hi! At HMH Labz,") or empty. Short WhatsApp turns don't need it.
+    # Sent as reasoning_effort on Gemini's OpenAI-compatible endpoint; empty = omit (model default).
+    gemini_reasoning_effort: str | None = "none"
     # USD per 1M tokens (input, output), keyed by model id without provider prefix. A model with
     # no entry is metered at 0 and logged as `llm_price_unknown` — fill this in, don't guess.
     llm_prices_usd_per_mtok: dict[str, tuple[Decimal, Decimal]] = Field(

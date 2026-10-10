@@ -216,11 +216,12 @@ class LLMRouter:
     async def _call(self, prov: _Provider, model: str, body: dict[str, Any]) -> LLMResult:
         url = prov.base_url.rstrip("/") + "/chat/completions"
         headers = {"Authorization": f"Bearer {prov.api_key}", **prov.extra_headers}
+        payload = {**body, "model": model}
+        if prov.name == "gemini" and self._settings.gemini_reasoning_effort:
+            payload["reasoning_effort"] = self._settings.gemini_reasoning_effort
         started = time.perf_counter()
         try:
-            resp = await self._http.post(
-                url, json={**body, "model": model}, headers=headers, timeout=self._timeout
-            )
+            resp = await self._http.post(url, json=payload, headers=headers, timeout=self._timeout)
         except httpx.TimeoutException as exc:
             raise _RetryableError(f"timeout:{type(exc).__name__}") from None
         except httpx.TransportError as exc:

@@ -57,6 +57,7 @@ async def test_unconfigured_category_or_market_refuses(db: Database) -> None:
 
 def test_market_for() -> None:
     assert market_for("971501234567") == "AE"
+    assert market_for("919876543210") == "IN"  # mapped, but only a `service` rate row exists
     with pytest.raises(PricingNotConfiguredError):
         market_for("447700900123")
 
