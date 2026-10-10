@@ -6,8 +6,12 @@ gemini-3-flash-preview exists), so every turn on the old defaults failed in the 
 
 * Column defaults: llm_model_chat → gemini-3.5-flash, llm_model_classify → gemini-3.5-flash-lite.
 * Rows still on a retired id move to the new one; a tenant deliberately on another model keeps it.
+  gemini-3-flash exists nowhere, so it always moves. The 2.5 ids are retired on Google direct
+  only (OpenRouter still serves them), so they move only for llm_provider = 'gemini': a tenant
+  put on openrouter + gemini-2.5-flash-lite on purpose (the prod stop-gap) is left alone.
 
-Production was hot-fixed by hand with the same values, so there this is a no-op. tenant_settings
+Production was hot-fixed by hand with the same values (and the stop-gap is on openrouter), so
+there this changes no rows. tenant_settings
 is a platform table (no RLS), so a plain UPDATE sees every tenant.
 
 Revision ID: 0011
@@ -29,11 +33,15 @@ OLD_CHAT, OLD_CLASSIFY = "gemini-3-flash", "gemini-2.5-flash-lite"
 # Two statements, executed separately (asyncpg rejects several commands in one execute).
 MOVE_CHAT = """
 UPDATE tenant_settings SET llm_model_chat = 'gemini-3.5-flash'
-  WHERE llm_model_chat IN ('gemini-3-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite')
+  WHERE llm_model_chat = 'gemini-3-flash'
+     OR (llm_provider = 'gemini'
+         AND llm_model_chat IN ('gemini-2.5-flash', 'gemini-2.5-flash-lite'))
 """
 MOVE_CLASSIFY = """
 UPDATE tenant_settings SET llm_model_classify = 'gemini-3.5-flash-lite'
-  WHERE llm_model_classify IN ('gemini-3-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite')
+  WHERE llm_model_classify = 'gemini-3-flash'
+     OR (llm_provider = 'gemini'
+         AND llm_model_classify IN ('gemini-2.5-flash', 'gemini-2.5-flash-lite'))
 """
 
 
