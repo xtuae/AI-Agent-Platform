@@ -10,7 +10,9 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import select
 
-from api.config import get_settings
+from api import alerts
+from api.alerts import send as alert_send
+from api.config import Settings, get_settings
 from api.core.crypto import decrypt_secret
 from api.core.passwords import verify_password
 from api.db.models import CouponPackage, Product, Tenant, TenantChannel, TenantSettings, TenantUser
@@ -18,6 +20,7 @@ from api.db.session import Database
 from api.modules import registry
 from api.scripts import seed_tenant as st
 from api.tests.conftest import meta_id
+from api.tests.test_campaigns import FakeMeta, worker_ctx
 from api.webhooks.router import TenantRouter
 
 CATALOG = st.Catalog.model_validate(
@@ -195,3 +198,71 @@ def test_aquamena_profile_contains_no_prices() -> None:
     profile = st.TENANT_PROFILES["aquamena"]
     assert profile.legal_name == "Aquamena Water Treatment L.L.C"
     assert not hasattr(profile, "products")
+
+
+# ---------------------------------------------------------------- hmhlabz (alert sender)
+
+
+def test_hmhlabz_profile_is_an_internal_tenant() -> None:
+    """HMH Labz's own number only sends platform alerts: no modules, no catalog, no cap."""
+    profile = st.TENANT_PROFILES["hmhlabz"]
+    assert (profile.name, profile.legal_name) == ("HMH Labz", "HMH Labz LLP")
+    assert profile.modules == ()
+    assert profile.monthly_message_cap_aed is None
+
+
+def test_cli_accepts_hmhlabz_without_a_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The DEPLOY_GUIDE Part 15 command parses (no DB touched); secrets come from the env."""
+    monkeypatch.setenv("SEED_META_ACCESS_TOKEN", "EAAG-hmh")
+    monkeypatch.delenv("SEED_ADMIN_PASSWORD", raising=False)
+    args = st._parse(
+        [
+            "--slug",
+            "hmhlabz",
+            "--phone-number-id",
+            "111",
+            "--waba-id",
+            "222",
+            "--display-phone",
+            "+971 50 000 0000",
+        ]
+    )
+    assert (args.slug, args.phone_number_id, args.waba_id) == ("hmhlabz", "111", "222")
+    assert args.catalog is None
+    assert args.access_token == "EAAG-hmh"
+    assert args.admin_email is None
+
+
+async def test_seeded_hmhlabz_tenant_sends_platform_alerts(
+    db: Database, migrated: None, settings: Settings
+) -> None:
+    res = await st.seed(
+        db, st.SeedArgs(slug="hmhlabz", phone_number_id=meta_id(), access_token="EAAG-hmh")
+    )
+    async with db.platform_session() as s:
+        tenant = await s.get(Tenant, res.tenant_id)
+        assert tenant is not None
+        assert (tenant.name, tenant.status) == ("HMH Labz", "active")
+        assert (await registry.enabled_for(s, res.tenant_id)).keys == ()
+    async with db.tenant_session(res.tenant_id) as s:
+        assert (await s.scalars(select(Product.sku))).all() == []
+
+    redis = Redis.from_url(str(settings.redis_url))
+    try:
+        await redis.delete(alerts.OUTBOX)
+        meta = FakeMeta()
+        ctx = worker_ctx(
+            db,
+            settings.model_copy(
+                update={"alert_tenant_slug": "hmhlabz", "alert_to": "971500000777"}
+            ),
+            meta,
+        )
+        ctx["redis"] = redis
+        await alerts.raise_alert(redis, f"seed-hmh-{uuid.uuid4().hex}", "Backup failed.")
+        assert (await alert_send.send_alerts(ctx))["sent"] == 1
+        assert meta.sent[-1]["to"] == "971500000777"
+        assert meta.sent[-1]["template"]["name"] == "platform_alert"
+    finally:
+        await redis.delete(alerts.OUTBOX)
+        await redis.aclose()
