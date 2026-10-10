@@ -7,7 +7,10 @@ No LiteLLM, no SDK.
 * Primary: up to 2 retries with 0.5 s / 2 s backoff on 429 / 5xx / timeout / connect errors.
 * Then one attempt on the other provider with the equivalent model id.
 * Both down → LLMUnavailableError; the caller sends a holding message and re-queues the turn.
-* A non-429 4xx is our bug (bad request), not an outage: raised as LLMRequestError, no failover.
+* A 404 means this provider does not serve the model (retired, or never existed under that id):
+  not retried, but failed over — the other provider may still have it, and a reply beats silence.
+  If every provider 404s it is a config bug: LLMRequestError.
+* Any other non-429 4xx is our bug (bad request), not an outage: LLMRequestError, no failover.
 * Every call returns model, prompt/completion tokens, latency and USD cost for metering.
 * Request and response bodies (customer text) are never logged.
 """
@@ -46,6 +49,10 @@ class LLMRequestError(Exception):
 
 class _RetryableError(Exception):
     pass
+
+
+class _ModelNotFoundError(Exception):
+    """HTTP 404 from one provider: skip its retries, try the other provider."""
 
 
 @dataclass(frozen=True)
@@ -165,19 +172,27 @@ class LLMRouter:
         plan = self._plan(provider, model)
         if not plan:
             raise LLMUnavailableError("no LLM provider has an API key configured")
+        outage = False
         for index, (prov, prov_model) in enumerate(plan):
             retries = RETRY_BACKOFF_S if index == 0 else ()
             try:
                 return await self._call_with_retries(prov, prov_model, body, retries)
-            except _RetryableError as exc:
-                log.warning(
-                    "llm_provider_failed", provider=prov.name, model=prov_model, reason=str(exc)
-                )
+            except (_RetryableError, _ModelNotFoundError) as exc:
+                if isinstance(exc, _ModelNotFoundError):
+                    # Loud: the tenant's model id needs changing, failover only hides it.
+                    log.error("llm_model_not_found", provider=prov.name, model=prov_model)
+                else:
+                    outage = True
+                    log.warning(
+                        "llm_provider_failed", provider=prov.name, model=prov_model, reason=str(exc)
+                    )
                 if index + 1 < len(plan):
                     log.error(
                         "llm_failover", from_provider=prov.name, to_provider=plan[index + 1][0].name
                     )
                     await self._event("failover")
+        if not outage:
+            raise LLMRequestError(f"no provider serves model {model!r}: HTTP 404")
         log.error("llm_all_providers_down", providers=[p.name for p, _ in plan])
         await self._event("all_down")
         raise LLMUnavailableError("all LLM providers failed")
@@ -230,6 +245,8 @@ class LLMRouter:
 
         if resp.status_code in RETRY_STATUSES:
             raise _RetryableError(f"http_{resp.status_code}")
+        if resp.status_code == 404:
+            raise _ModelNotFoundError(f"{prov.name} has no model {model!r}: HTTP 404")
         if resp.status_code >= 400:
             raise LLMRequestError(f"{prov.name} rejected the request: HTTP {resp.status_code}")
         try:

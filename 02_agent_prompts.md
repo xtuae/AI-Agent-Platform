@@ -22,7 +22,7 @@ per conversation from the database. Nothing about Aquamena is hardcoded in the p
 
 ## 1. Intent classifier
 
-Model: `gemini-2.5-flash-lite` · temperature 0 · max output 20 tokens · JSON mode
+Model: `gemini-3.5-flash-lite` · temperature 0 · max output 20 tokens · JSON mode
 
 ```
 Classify the customer's latest WhatsApp message into exactly one intent.
@@ -64,7 +64,7 @@ legally-sensitive cases (opt-out, complaint) deterministic rather than a matter 
 
 ## 2. Support Agent — system prompt
 
-Model: `gemini-3-flash` · temperature 0.3 · max output 300 tokens · tools enabled
+Model: `gemini-3.5-flash` · temperature 0.3 · max output 300 tokens · tools enabled
 
 ```
 You are {{agent_name}}, the WhatsApp assistant for {{business_name}}, a {{business_description}}
@@ -304,7 +304,7 @@ handles replies to campaigns.
 
 ### 4.1 Campaign copy drafter — system prompt
 
-Model: `gemini-3-flash` · temperature 0.7 · not customer-facing
+Model: `gemini-3.5-flash` · temperature 0.7 · not customer-facing
 
 ```
 You write WhatsApp campaign messages for {{business_name}}, {{business_description}} serving

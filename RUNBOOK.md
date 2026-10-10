@@ -186,6 +186,7 @@ customers who started the bot and have not blocked it.
 | Postgres unreachable — webhooks parked | DB down; messages wait in Redis | Fix Postgres (`dc ps`, `dc logs postgres`, disk). They replay by themselves within 30 s of recovery. |
 | Job queue depth > 500 | workers behind | `dc ps worker`; `dc logs worker`; scale: `dc up -d --scale worker=2`. |
 | LLM failover | Gemini failing, OpenRouter answering | Check Google AI status / key / quota. Nothing for customers to notice. |
+| `llm_model_not_found` | Gemini answered 404 for the tenant's model (retired / wrong id); OpenRouter answering | Move the tenant to a current id (`tenant_settings.llm_model_chat` / `llm_model_classify`) — see Google's deprecations page. If OpenRouter 404s too the turn fails with no reply. |
 | Both LLM providers failed | customers get the holding message; turns retry, then hand over | Check both providers' keys and spend caps. |
 | Quality rating changed | Meta moved a number's rating | YELLOW pauses marketing, RED cancels it — see next section. |
 | Tenant at 80% of cap | a tenant's message spend nears its cap | Tell the client; raise the cap only with their written OK. |

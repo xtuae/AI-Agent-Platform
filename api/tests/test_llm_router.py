@@ -59,7 +59,7 @@ def router(graph: Graph, sleeps: list[float], **overrides: object) -> LLMRouter:
 async def chat(r: LLMRouter, **kw: Any) -> LLMResult:
     return await r.chat(
         provider="gemini",
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.5-flash-lite",
         messages=[{"role": "user", "content": "x"}],
         **kw,
     )
@@ -69,10 +69,10 @@ async def test_primary_success_records_tokens_latency_cost() -> None:
     g = Graph(ok("hello"))
     res = await chat(router(g, []))
     assert res.content == "hello"
-    assert (res.provider, res.model) == ("gemini", "gemini-2.5-flash-lite")
+    assert (res.provider, res.model) == ("gemini", "gemini-3.5-flash-lite")
     assert (res.prompt_tokens, res.completion_tokens) == (1000, 200)
-    # 1000 * 0.10/M + 200 * 0.40/M
-    assert res.cost_usd == Decimal("0.00018")
+    # 1000 * 0.30/M + 200 * 2.50/M
+    assert res.cost_usd == Decimal("0.0008")
     req = g.requests[0]
     assert str(req.url).startswith(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
@@ -95,7 +95,7 @@ async def test_failover_to_openrouter_with_equivalent_model() -> None:
     )
     res = await chat(router(g, sleeps))
     assert res.provider == "openrouter"
-    assert json.loads(g.requests[-1].content)["model"] == "google/gemini-2.5-flash-lite"
+    assert json.loads(g.requests[-1].content)["model"] == "google/gemini-3.5-flash-lite"
     assert g.requests[-1].headers["authorization"] == "Bearer or-key"
 
 
@@ -125,6 +125,38 @@ async def test_bad_request_is_not_retried_or_failed_over() -> None:
     with pytest.raises(LLMRequestError):
         await chat(router(g, []))
     assert len(g.requests) == 1
+
+
+async def test_model_not_found_fails_over_without_retrying() -> None:
+    # Google retired the model for this key: 404 on Gemini, OpenRouter still serves it.
+    sleeps: list[float] = []
+    events: list[str] = []
+    g = Graph(httpx.Response(404, json={"error": {"message": "no longer available"}}), ok("or"))
+    r = router(g, sleeps)
+
+    async def on_event(name: str) -> None:
+        events.append(name)
+
+    r._on_event = on_event
+    res = await chat(r)
+    assert (res.provider, res.content) == ("openrouter", "or")
+    assert json.loads(g.requests[-1].content)["model"] == "google/gemini-3.5-flash-lite"
+    assert len(g.requests) == 2
+    assert sleeps == []
+    assert events == ["failover"]
+
+
+async def test_model_not_found_everywhere_is_a_request_error() -> None:
+    g = Graph(httpx.Response(404), httpx.Response(404))
+    with pytest.raises(LLMRequestError):
+        await chat(router(g, []))
+    assert len(g.requests) == 2
+
+
+async def test_model_not_found_then_outage_is_unavailable() -> None:
+    g = Graph(httpx.Response(404), httpx.Response(503))
+    with pytest.raises(LLMUnavailableError):
+        await chat(router(g, []))
 
 
 async def test_provider_without_key_is_skipped() -> None:

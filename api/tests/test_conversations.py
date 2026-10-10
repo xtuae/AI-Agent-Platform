@@ -164,7 +164,7 @@ class FakeTranscriber:
 
     async def transcribe(self, audio: bytes, mime_type: str | None) -> Transcript:
         assert audio == b"OggS-fake-voice-note"
-        return Transcript(self.text, "gemini-2.5-flash", 300, 20, 400, Decimal("0.00002"))
+        return Transcript(self.text, "gemini-3.5-flash", 300, 20, 400, Decimal("0.00002"))
 
 
 # ================================================================ the shop
@@ -327,8 +327,8 @@ async def shop(db: Database, settings: Settings) -> AsyncIterator[Shop]:
         s.add(
             TenantSettings(
                 tenant_id=tenant_id,
-                llm_model_chat=os.environ.get("LIVE_CHAT_MODEL", "gemini-3-flash"),
-                llm_model_classify=os.environ.get("LIVE_CLASSIFY_MODEL", "gemini-2.5-flash-lite"),
+                llm_model_chat=os.environ.get("LIVE_CHAT_MODEL", "gemini-3.5-flash"),
+                llm_model_classify=os.environ.get("LIVE_CLASSIFY_MODEL", "gemini-3.5-flash-lite"),
                 agent_persona={
                     "name": "Sara",
                     "business_description": "drinking-water delivery company",

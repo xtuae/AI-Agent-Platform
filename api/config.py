@@ -64,10 +64,15 @@ class Settings(BaseSettings):
     gemini_reasoning_effort: str | None = "none"
     # USD per 1M tokens (input, output), keyed by model id without provider prefix. A model with
     # no entry is metered at 0 and logged as `llm_price_unknown` — fill this in, don't guess.
+    # Source: https://ai.google.dev/gemini-api/docs/pricing (standard paid tier, checked
+    # 2026-10-10). gemini-3.5-flash is not on that page (Google routes it to gemini-3.6-flash).
     llm_prices_usd_per_mtok: dict[str, tuple[Decimal, Decimal]] = Field(
-        default_factory=lambda: {"gemini-2.5-flash-lite": (Decimal("0.10"), Decimal("0.40"))}
+        default_factory=lambda: {
+            "gemini-3.5-flash-lite": (Decimal("0.30"), Decimal("2.50")),
+            "gemini-2.5-flash-lite": (Decimal("0.10"), Decimal("0.40")),
+        }
     )
-    transcription_model: str = "gemini-2.5-flash"
+    transcription_model: str = "gemini-3.5-flash"
     summary_model: str | None = None  # None → the tenant's classify model
 
     # Embeddings (01 §9): fastembed in-process, 384 dims.
