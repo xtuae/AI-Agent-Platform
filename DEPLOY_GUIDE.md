@@ -596,7 +596,7 @@ Change these lines. Leave every line not listed here as it is.
 | `META_VERIFY_TOKEN=` | from 8.2 | You will paste the same value into Meta in Part 12. |
 | `GOOGLE_AI_API_KEY=` | your Google AI key | |
 | `OPENROUTER_API_KEY=` | your OpenRouter key | |
-| `LLM_PRICES_USD_PER_MTOK=` | keep, and **add** the price of the model you use from Google's price list, e.g. `{"gemini-2.5-flash-lite": ["0.10", "0.40"], "gemini-3-flash": ["IN", "OUT"]}` | Without it, AI cost shows as 0 in the dashboards. |
+| `LLM_PRICES_USD_PER_MTOK=` | keep, and **add** the price of the model you use from Google's price list, e.g. `{"gemini-3.5-flash-lite": ["0.30", "2.50"]}` (gemini-3.5-flash has no published price yet) | Without it, AI cost shows as 0 in the dashboards. |
 | `DB_BACKUP_PASSWORD=` | from 8.2 | |
 | `BACKUP_AGE_RECIPIENT=` | the `age1…` public key from Part 2.4 | |
 | `BACKUP_BUCKET=` … `BACKUP_SECRET_ACCESS_KEY=` | from Part 14.1 | Can stay empty until Part 14. |
@@ -877,6 +877,8 @@ unset SEED_META_ACCESS_TOKEN SEED_ADMIN_PASSWORD
 
 - `--escalation-phone` is the Aquamena staff number that is told when a customer needs a human.
   Digits only, starting with `971`, no `+`.
+  The alert only goes out once an approved Utility template is set as well (without it the
+  worker logs `escalation_notify_unconfigured`): see RUNBOOK → "Escalation alerts to staff".
 - Optional: add `--service-start 2026-11-01 --free-months-until 2027-01-31` when the contract
   dates are confirmed.
 - Success ends with a `seed_done` line showing the number of products and coupon packages.

@@ -17,8 +17,8 @@
 | Workers | **ARQ** | Async-native, Redis-backed, lighter than Celery |
 | Edge | **Caddy 2** | Automatic TLS, wildcard subdomains, ~50 MB |
 | Dashboard | **React 18 + Vite**, static build | Zero runtime CPU; built in CI, served as files |
-| Primary LLM | **Gemini 3 Flash** (direct Google AI API) | Cost, latency, native Arabic, reliable tool calling |
-| Classifier LLM | **Gemini 2.5 Flash-Lite** | $0.10/$0.40 per M tokens |
+| Primary LLM | **Gemini 3.5 Flash** (direct Google AI API) | Cost, latency, native Arabic, reliable tool calling |
+| Classifier LLM | **Gemini 3.5 Flash-Lite** | $0.30/$2.50 per M tokens |
 | Failover LLM | **OpenRouter** | OpenAI-compatible, one key, many models |
 | Embeddings | **fastembed (ONNX, in-process)** | ~50 ms on CPU, no API cost, no daemon |
 | Local inference | **Not used** | See §9 |
@@ -97,7 +97,7 @@ outbound campaign throughput, which is governed by Meta's rate limits, not your 
               ┌────────────────┼─────────────────┐
               ▼                ▼                 ▼
       Google AI API      OpenRouter        Meta Graph API
-      (Gemini 3 Flash)   (failover)        (send messages)
+      (Gemini 3.5 Flash)   (failover)        (send messages)
 ```
 
 ### 3.1 docker-compose services
@@ -198,8 +198,8 @@ tenant_channels                   -- the webhook routing table
 tenant_settings
   tenant_id uuid pk fk,
   llm_provider text default 'gemini',        -- 'gemini' | 'openrouter'
-  llm_model_chat text default 'gemini-3-flash',
-  llm_model_classify text default 'gemini-2.5-flash-lite',
+  llm_model_chat text default 'gemini-3.5-flash',
+  llm_model_classify text default 'gemini-3.5-flash-lite',
   monthly_message_cap_aed numeric(10,2),
   monthly_token_cap int,
   business_hours jsonb, escalation_phone text,
@@ -340,7 +340,7 @@ later — retrofitting metering means you cannot bill accurately for the months 
     complaint / refund / dispute → escalate to human, notify, STOP
 10. Build context: customer + coupon balance + last 10 turns + rolling summary
     + RAG over knowledge_chunks (top 4)
-11. Gemini 3 Flash with tool schemas (see 02_agent_prompts.md)
+11. Gemini 3.5 Flash with tool schemas (see 02_agent_prompts.md)
 12. Execute tool calls against Postgres inside one transaction
 13. Validate the reply: no invented prices, no invented stock, has an answer
 14. Send via Meta Graph API, stamp cost_aed, record tokens and latency
@@ -442,7 +442,7 @@ WebSockets and it survives Caddy's default config without extra work. Fall back 
 | CPU contention | Generation pegs all 4 cores, starving the API for every other tenant |
 | Arabic quality | Materially worse than Gemini on small models |
 | Tool calling | Unreliable below ~7B — it will invent order quantities and prices |
-| Cost saving | None worth having: Gemini 2.5 Flash-Lite is $0.10 / $0.40 per M tokens |
+| Cost saving | None worth having: Gemini 3.5 Flash-Lite is $0.30 / $2.50 per M tokens |
 
 A customer asking "how many bottles do I have left" will not wait 45 seconds. And the failure is not
 graceful — it degrades every other client on the box simultaneously.

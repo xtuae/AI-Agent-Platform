@@ -1052,7 +1052,7 @@ async def test_drafter_suggests_and_meters(dash: DashHarness) -> None:
                 }
             )
             return LLMResult(
-                content, [], "gemini", "gemini-3-flash", 700, 90, 900, Decimal("0.0004")
+                content, [], "gemini", "gemini-3.5-flash", 700, 90, 900, Decimal("0.0004")
             )
 
     dash.app.state.llm = FakeLLM()

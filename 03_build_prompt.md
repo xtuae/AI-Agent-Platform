@@ -207,7 +207,7 @@ PHASE 2 — The Support Agent.
 
 Build exactly the prompts and tool schemas in 02_agent_prompts.md. Do not improvise the prompt text.
 
-- llm/router.py: Gemini 3 Flash primary via the Google AI OpenAI-compatible endpoint, 2 retries with
+- llm/router.py: Gemini 3.5 Flash primary via the Google AI OpenAI-compatible endpoint, 2 retries with
   0.5s/2s backoff, failover to OpenRouter on 429/5xx/timeout, model choice read per tenant from
   tenant_settings. Record model, prompt_tokens, completion_tokens, latency_ms on every call.
 - agents/classifier.py: Flash-Lite, JSON mode, temperature 0. optout and complaint short-circuit

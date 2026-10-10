@@ -60,14 +60,21 @@ class Settings(BaseSettings):
     llm_connect_timeout_s: float = Field(default=5.0, gt=0)
     # Gemini 3.x "thinks" by default and the thinking counts against max_tokens: at 300 tokens a
     # reply came back cut off ("Hi! At HMH Labz,") or empty. Short WhatsApp turns don't need it.
-    # Sent as reasoning_effort on Gemini's OpenAI-compatible endpoint; empty = omit (model default).
+    # Sent for Gemini models on both providers (Gemini: reasoning_effort, OpenRouter:
+    # reasoning.effort); empty = omit (model default). "none" only exists on Gemini 2.x and is
+    # sent as "minimal" to 3.x models (see LLMRouter._reasoning_effort).
     gemini_reasoning_effort: str | None = "none"
     # USD per 1M tokens (input, output), keyed by model id without provider prefix. A model with
     # no entry is metered at 0 and logged as `llm_price_unknown` — fill this in, don't guess.
+    # Source: https://ai.google.dev/gemini-api/docs/pricing (standard paid tier, checked
+    # 2026-10-10). gemini-3.5-flash is not on that page (Google routes it to gemini-3.6-flash).
     llm_prices_usd_per_mtok: dict[str, tuple[Decimal, Decimal]] = Field(
-        default_factory=lambda: {"gemini-2.5-flash-lite": (Decimal("0.10"), Decimal("0.40"))}
+        default_factory=lambda: {
+            "gemini-3.5-flash-lite": (Decimal("0.30"), Decimal("2.50")),
+            "gemini-2.5-flash-lite": (Decimal("0.10"), Decimal("0.40")),
+        }
     )
-    transcription_model: str = "gemini-2.5-flash"
+    transcription_model: str = "gemini-3.5-flash"
     summary_model: str | None = None  # None → the tenant's classify model
 
     # Embeddings (01 §9): fastembed in-process, 384 dims.

@@ -75,7 +75,7 @@ async def test_classifier_call_shape_and_parse() -> None:
     c = await classify(
         llm,
         provider="gemini",
-        model="gemini-2.5-flash-lite",
+        model="gemini-3.5-flash-lite",
         text="كم زجاجة باقي عندي",
         modules=("catalog", "orders", "coupons"),
     )
@@ -155,8 +155,8 @@ def persona(**kw: Any) -> Persona:
         "business_hours": "Sat-Thu 08:00-22:00; Fri 14:00-22:00",
         "timezone": "Asia/Dubai",
         "llm_provider": "gemini",
-        "chat_model": "gemini-3-flash",
-        "classify_model": "gemini-2.5-flash-lite",
+        "chat_model": "gemini-3.5-flash",
+        "classify_model": "gemini-3.5-flash-lite",
         "escalation_phone": None,
     }
     base.update(kw)

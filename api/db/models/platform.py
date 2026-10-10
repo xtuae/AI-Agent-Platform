@@ -107,9 +107,9 @@ class TenantSettings(Base):
         ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True
     )
     llm_provider: Mapped[str] = mapped_column(Text, server_default=text("'gemini'"))
-    llm_model_chat: Mapped[str] = mapped_column(Text, server_default=text("'gemini-3-flash'"))
+    llm_model_chat: Mapped[str] = mapped_column(Text, server_default=text("'gemini-3.5-flash'"))
     llm_model_classify: Mapped[str] = mapped_column(
-        Text, server_default=text("'gemini-2.5-flash-lite'")
+        Text, server_default=text("'gemini-3.5-flash-lite'")
     )
     monthly_message_cap_aed: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     monthly_token_cap: Mapped[int | None] = mapped_column(Integer)
